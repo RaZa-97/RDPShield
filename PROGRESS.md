@@ -1,7 +1,7 @@
 # RDPShield — Project Progress & Reference
 
 > MSc Dissertation project. Windows blue-team tool for RDP brute-force detection with a Flask SOC-style dashboard.
-> Last updated: 2026-06-18
+> Last updated: 2026-06-19
 
 ---
 
@@ -395,3 +395,39 @@ hydra -t 1 -L /tmp/users.txt -p 'Password123' rdp://16.170.232.91
 | `hydra: invalid option -- '1'` | Typed `-1` (number one) instead of `-l` (lowercase L); fonts make them look alike | Use `-l` or long form `--login` |
 | If hydra complains about RDP parallelism | RDP sensitive to high `-t` | Drop to `-t 1` |
 | Bots attacking on their own | Port 3389 public — internet scanners find it within minutes | Expected; real attack data accumulates without any manual attack |
+
+---
+
+## GitHub / Version Control
+
+Repo initialised locally on `main` branch. Two commits:
+- `Initial commit: RDPShield RDP brute-force detection system`
+- `Add project README`
+
+### Secret protection (critical)
+`.gitignore` excludes secrets and runtime data — **verified before first commit** that `config.py` and the database are NOT staged:
+```
+config.py          ← live API keys / credentials — NEVER commit
+*.db               ← rdpshield.db (runtime data)
+*.log              ← agent/dashboard logs
+__pycache__/
+.claude/           ← local Claude Code settings
+run_*.bat / panic_unblock.bat   ← server-specific deploy helpers
+```
+
+`config.example.py` is committed as a sanitised template (placeholder keys). New clones run `copy config.example.py config.py` and fill in their own values.
+
+### Files added for the repo
+- `.gitignore`
+- `config.example.py` — sanitised config template
+- `README.md` — overview, architecture diagram, setup/usage, security notes
+
+### Pushing (manual — no gh CLI on dev machine)
+1. Create an EMPTY repo at https://github.com/new (no README/.gitignore/license)
+2. ```powershell
+   git remote add origin https://github.com/YOUR-USERNAME/RDPShield.git
+   git push -u origin main
+   ```
+
+### Outstanding security task
+⚠ **Rotate the AbuseIPDB API key** — it was exposed in plaintext during development and lives on the EC2 server's `config.py`. Regenerate at abuseipdb.com → Account → API. Optionally rotate the Notify.lk key too. The repo is clean (config.py gitignored), but the live key on the server should still be replaced.
