@@ -1,0 +1,31 @@
+# Secrets — NEVER commit
+config.py
+
+# Database (runtime data)
+rdpshield.db
+rdpshield.db-wal
+rdpshield.db-shm
+*.db
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+
+# Deployment helpers (server-specific)
+run_agent.bat
+run_dashboard.bat
+panic_unblock.bat

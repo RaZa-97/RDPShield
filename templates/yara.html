@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RDPShield — YARA Controller</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="yara-wrap">
+
+  <nav class="navbar">
+    <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Dashboard</a>
+      <a href="/geo" class="nav-link">Geolocation</a>
+      <a href="/yara" class="nav-link active">YARA Controller</a>
+    </div>
+  </nav>
+
+  <div class="yara-head">
+    <div>
+      <h1>YARA Controller</h1>
+      <p><b>Disk scan</b> runs automatically after a brute-force block and can send an SMS on
+         a critical hit. <b>Memory scan</b> is an on-demand deep inspection of process memory -
+         slower, reviewed here only, and never sends SMS. There is no background scanning.</p>
+    </div>
+    <div class="btn-row">
+      <button id="diskBtn" class="btn btn-disk" onclick="startScan('disk')">Run Disk Scan</button>
+      <button id="memBtn"  class="btn btn-mem"  onclick="startScan('memory')">Run Memory Scan</button>
+      <div class="btn-note">Memory scan walks every process &mdash; expect ~1&ndash;2 min.</div>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <div class="status-card">
+      <div class="label">Scanner</div>
+      <div class="value"><span id="stateDot" class="dot idle"></span><span id="stateText">—</span></div>
+    </div>
+    <div class="status-card">
+      <div class="label">Last Scan</div>
+      <div class="value" id="lastScan" style="font-size:15px;">—</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Last Findings</div>
+      <div class="value" id="lastFindings">—</div>
+    </div>
+    <div class="status-card">
+      <div class="label">Worst Severity</div>
+      <div class="value" id="lastSeverity"><span class="badge b-none">—</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Scan History</h2>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Time</th><th>Trigger</th><th>Findings</th><th>Critical</th><th>Worst</th><th>Duration</th></tr>
+      </thead>
+      <tbody id="historyBody">
+        <tr><td colspan="7" class="empty">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel" id="findingsPanel" style="display:none;">
+    <h2 id="findingsTitle">Findings</h2>
+    <table>
+      <thead>
+        <tr><th>Severity</th><th>Rule</th><th>Type</th><th>Location</th><th>Matched</th><th>Description</th></tr>
+      </thead>
+      <tbody id="findingsBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+function sev(s){ s = s || 'none'; return '<span class="badge b-'+s+'">'+(s==='none'?'—':s)+'</span>'; }
+function typeTag(t){ var c = (t==='memory')?'tag-mem':'tag-disk'; return '<span class="badge '+c+'">'+esc(t)+'</span>'; }
+function esc(t){ return (t==null?'':String(t)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3200);
+}
+
+let scanning=false;
+
+function setButtons(){
+  document.getElementById('diskBtn').disabled = scanning;
+  document.getElementById('memBtn').disabled  = scanning;
+}
+
+async function refresh(){
+  try{
+    const r=await fetch('/yara/status'); const d=await r.json();
+    const st=d.status||{};
+    scanning = (st.state==='Scanning');
+
+    document.getElementById('stateDot').className='dot '+(scanning?'scanning':'idle');
+    document.getElementById('stateText').textContent = scanning
+        ? ('Scanning'+(st.triggered_by?' ('+st.triggered_by+')':'')) : 'Idle';
+    document.getElementById('lastScan').textContent = st.last_scan_at || '—';
+    document.getElementById('lastFindings').textContent =
+        (st.last_total!=null? st.last_total : '—') + (st.last_critical? ' / '+st.last_critical+' crit':'');
+    document.getElementById('lastSeverity').innerHTML = sev(st.last_max_severity);
+    setButtons();
+    renderHistory(d.history||[]);
+  }catch(e){ /* dashboard may not be up yet */ }
+}
+
+function renderHistory(rows){
+  const body=document.getElementById('historyBody');
+  if(!rows.length){ body.innerHTML='<tr><td colspan="7" class="empty">No scans yet. Run a disk or memory scan above.</td></tr>'; return; }
+  body.innerHTML = rows.map(h=>`
+    <tr class="scan-row" onclick="loadFindings(${h.id})">
+      <td class="mono">#${h.id}</td>
+      <td>${esc(h.completed_at||h.started_at||'')}</td>
+      <td class="mono">${esc(h.triggered_by||'')}</td>
+      <td>${h.total_findings??0}</td>
+      <td>${h.critical_findings??0}</td>
+      <td>${sev(h.max_severity)}</td>
+      <td class="muted">${h.duration!=null?h.duration+'s':'—'}</td>
+    </tr>`).join('');
+}
+
+async function loadFindings(id){
+  const panel=document.getElementById('findingsPanel');
+  const body=document.getElementById('findingsBody');
+  document.getElementById('findingsTitle').textContent='Findings — Scan #'+id;
+  panel.style.display='block';
+  body.innerHTML='<tr><td colspan="6" class="empty">Loading…</td></tr>';
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  try{
+    const r=await fetch('/yara/findings/'+id); const d=await r.json();
+    const f=d.findings||[];
+    if(!f.length){ body.innerHTML='<tr><td colspan="6" class="empty">No findings — clean scan.</td></tr>'; return; }
+    body.innerHTML=f.map(x=>`
+      <tr>
+        <td>${sev(x.severity)}</td>
+        <td class="mono">${esc(x.rule_name)}</td>
+        <td>${typeTag(x.match_type)}</td>
+        <td class="mono">${esc(x.location)}</td>
+        <td class="mono muted">${esc(x.matched_strings)}</td>
+        <td class="muted">${esc(x.description)}</td>
+      </tr>`).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="6" class="empty">Failed to load findings.</td></tr>'; }
+}
+
+async function startScan(kind){
+  if(scanning) return;
+  scanning = true; setButtons();
+  const url = (kind==='memory') ? '/yara/scan_memory' : '/yara/scan';
+  try{
+    const r=await fetch(url,{method:'POST'}); const d=await r.json();
+    toast(d.message || (d.started?'Scan started.':'Could not start scan.'));
+  }catch(e){ toast('Request failed.'); }
+  setTimeout(refresh,400);
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

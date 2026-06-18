@@ -1,0 +1,12 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RDPShield logo">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4d7bf3"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 3 L7 9.5 V22 C7 34.5 14.8 42.7 24 45.5 C33.2 42.7 41 34.5 41 22 V9.5 Z"
+        fill="url(#shieldGrad)" stroke="#15306e" stroke-width="0.6"/>
+  <path d="M15.5 23.5 L21 29.5 L33 15.5"
+        fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

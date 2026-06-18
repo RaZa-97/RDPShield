@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta http-equiv="refresh" content="10">
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation Bar -->
+        <nav class="navbar">
+            <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
+            <div class="nav-links">
+                <a href="/" class="nav-link active">Dashboard</a>
+                <a href="/geo" class="nav-link">Geolocation</a>
+                <a href="/yara" class="nav-link">YARA Controller</a>
+            </div>
+        </nav>
+
+        <!-- Header -->
+        <header>
+            <div>
+                <h1>RDPShield Dashboard</h1>
+                <p class="subtitle">RDP Brute Force Detection Agent</p>
+            </div>
+            <span class="live-pill"><span class="live-dot"></span>Live &middot; auto-refreshes every 10s</span>
+        </header>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Failed Logins</div>
+                <div class="stat-number">{{ stats.total_failed_logins }}</div>
+            </div>
+            <div class="stat-card tone-critical">
+                <div class="stat-label">Alerts Triggered</div>
+                <div class="stat-number">{{ stats.total_alerts }}</div>
+            </div>
+            <div class="stat-card tone-high">
+                <div class="stat-label">IPs Blocked</div>
+                <div class="stat-number">{{ stats.total_blocked }}</div>
+            </div>
+            <div class="stat-card tone-info">
+                <div class="stat-label">Unique Attackers</div>
+                <div class="stat-number">{{ stats.unique_attacker_ips }}</div>
+            </div>
+        </div>
+
+        <!-- Trend + Alert Breakdown Charts -->
+        <div class="charts-row">
+            <div class="chart-panel">
+                <h2>Failed Login Trend</h2>
+                <div class="chart-sub">Last 14 days</div>
+                <div class="chart-canvas-wrap tall">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-panel">
+                <h2>Alert Breakdown</h2>
+                <div class="chart-sub">By detection type, last 30 days</div>
+                {% if alert_breakdown_30d %}
+                <div class="chart-canvas-wrap">
+                    <canvas id="alertTypeChart"></canvas>
+                </div>
+                {% else %}
+                <p class="empty">No alerts in the last 30 days.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Top Attacker Countries -->
+        <div class="section">
+            <h2>&#127758; Top Attacker Countries</h2>
+            {% if top_countries %}
+            <div class="country-list">
+                {% set max_count = top_countries[0].cnt %}
+                {% for c in top_countries %}
+                <div class="country-row">
+                    <span class="country-name">{{ c.country }}</span>
+                    <div class="country-bar-track">
+                        <div class="country-bar-fill" style="width: {{ (c.cnt / max_count * 100) if max_count else 0 }}%;"></div>
+                    </div>
+                    <span class="country-count">{{ c.cnt }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty">No geolocated alerts yet.</p>
+            {% endif %}
+        </div>
+
+        <!-- Active Alerts -->
+        <div class="section">
+            <h2>&#9888; Recent Alerts</h2>
+            {% if alerts %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Attacker IP</th>
+                        <th>Location</th>
+                        <th>Abuse Score</th>
+                        <th>Description</th>
+                        <th>Blocked</th>
+                        <th>SMS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for alert in alerts %}
+                    <tr class="alert-row-{{ alert.alert_type }}">
+                        <td>{{ alert.timestamp[:19] }}</td>
+                        <td><span class="badge badge-{{ alert.alert_type }}">{{ alert.alert_type }}</span></td>
+                        <td class="ip">{{ alert.source_ip }}</td>
+                        <td>{{ alert.geo_city }}{% if alert.geo_country %}, {{ alert.geo_country }}{% endif %}</td>
+                        <td>
+                            {% if alert.abuse_score >= 75 %}
+                                <span class="score-high">{{ alert.abuse_score }}%</span>
+                            {% elif alert.abuse_score >= 25 %}
+                                <span class="score-medium">{{ alert.abuse_score }}%</span>
+                            {% else %}
+                                <span class="score-low">{{ alert.abuse_score }}%</span>
+                            {% endif %}
+                        </td>
+                        <td class="description">{{ alert.description }}</td>
+                        <td>{% if alert.blocked %}&#9989;{% else %}&#10060;{% endif %}</td>
+                        <td>{% if alert.sms_sent %}&#9989;{% else %}&#10060;{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No alerts yet. Waiting for attack detection...</p>
+            {% endif %}
+        </div>
+
+        <!-- Blocked IPs -->
+        <div class="section">
+            <h2>&#128683; Blocked IPs</h2>
+            {% if blocked %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>IP Address</th>
+                        <th>Reason</th>
+                        <th>Blocked At</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ip in blocked %}
+                    <tr>
+                        <td class="ip">{{ ip.ip_address }}</td>
+                        <td>{{ ip.reason }}</td>
+                        <td>{{ ip.blocked_at }}</td>
+                        <td>
+                            <form method="POST" action="/unblock/{{ ip.ip_address }}" class="confirm-form"
+                                  data-confirm-message="Unblock {{ ip.ip_address }}? It will be able to attempt logins again."
+                                  data-confirm-title="Unblock IP address" data-confirm-ok="Unblock"
+                                  style="display:inline;">
+                                <button type="submit" class="btn-unblock">Unblock</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No IPs currently blocked.</p>
+            {% endif %}
+        </div>
+
+        <!-- Recent Failed Logins -->
+        <div class="section">
+            <h2>&#128196; Recent Failed Logins</h2>
+            {% if recent %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Source IP</th>
+                        <th>Username</th>
+                        <th>Domain</th>
+                        <th>Sub Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in recent %}
+                    <tr>
+                        <td>{{ event.timestamp[:19] }}</td>
+                        <td class="ip">{{ event.source_ip }}</td>
+                        <td>{{ event.username }}</td>
+                        <td>{{ event.domain }}</td>
+                        <td><code>{{ event.sub_status }}</code></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No failed login events recorded yet.</p>
+            {% endif %}
+        </div>
+
+        <footer>
+            <p>RDPShield v3.1 | Page auto-refreshes every 10 seconds</p>
+        </footer>
+    </div>
+
+    <div class="modal-overlay" id="confirmModalOverlay">
+        <div class="modal-box">
+            <h3 id="confirmModalTitle">Please confirm</h3>
+            <p id="confirmModalMessage"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+                <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+    <script>
+        const trendData = {{ trend | tojson }};
+        const alertTypeData = {{ alert_breakdown_30d | tojson }};
+
+        const css = getComputedStyle(document.documentElement);
+        const colorVar = (name) => css.getPropertyValue(name).trim();
+
+        function hexToRgba(hex, alpha) {
+            const c = hex.replace('#', '');
+            const r = parseInt(c.substring(0, 2), 16);
+            const g = parseInt(c.substring(2, 4), 16);
+            const b = parseInt(c.substring(4, 6), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        // Drop-shadow plugin so the bars read as "lifted" off the panel - a
+        // lightweight 3D cue without pulling in a full 3D charting library.
+        const barShadowPlugin = {
+            id: 'barShadow',
+            beforeDatasetsDraw(chart) {
+                const { ctx } = chart;
+                ctx.save();
+                ctx.shadowColor = 'rgba(16, 24, 40, 0.25)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 6;
+            },
+            afterDatasetsDraw(chart) {
+                chart.ctx.restore();
+            }
+        };
+
+        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        Chart.defaults.color = colorVar('--muted');
+
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: {
+                labels: trendData.labels,
+                datasets: [{
+                    label: 'Failed logins',
+                    data: trendData.values,
+                    borderColor: colorVar('--brand'),
+                    backgroundColor: 'rgba(47, 95, 224, 0.10)',
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { beginAtZero: true, grid: { color: '#eef1f6' } }
+                }
+            }
+        });
+
+        const alertTypeKeys = Object.keys(alertTypeData);
+        if (alertTypeKeys.length) {
+            const labelMap = {
+                brute_force: 'Brute Force',
+                slow_attack: 'Slow & Low',
+                password_spray: 'Password Spray',
+                geo_block: 'Geo Block',
+            };
+            const palette = {
+                brute_force: colorVar('--critical'),
+                slow_attack: colorVar('--high'),
+                password_spray: colorVar('--purple'),
+                geo_block: colorVar('--brand'),
+            };
+            const fallback = ['#16a34a', '#0891b2', '#9333ea'];
+            const baseColors = alertTypeKeys.map((k, i) => palette[k] || fallback[i % fallback.length]);
+
+            const alertCtx = document.getElementById('alertTypeChart').getContext('2d');
+            const barColors = baseColors.map((base) => {
+                const grad = alertCtx.createLinearGradient(0, 0, 0, 260);
+                grad.addColorStop(0, hexToRgba(base, 0.55));
+                grad.addColorStop(1, hexToRgba(base, 1));
+                return grad;
+            });
+
+            new Chart(alertCtx, {
+                type: 'bar',
+                data: {
+                    labels: alertTypeKeys.map(k => labelMap[k] || k.replace('_', ' ')),
+                    datasets: [{
+                        data: alertTypeKeys.map(k => alertTypeData[k]),
+                        backgroundColor: barColors,
+                        borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
+                        borderSkipped: false,
+                        maxBarThickness: 56,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#eef1f6' } }
+                    }
+                },
+                plugins: [barShadowPlugin]
+            });
+        }
+    </script>
+</body>
+</html>
