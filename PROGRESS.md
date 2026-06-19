@@ -101,7 +101,10 @@ xcopy "Z:\templates\yara.html"    "C:\RDPShield\templates\" /Y
 | **Brute Force** | ≥ 5 failed logins from same IP | 60 s | `BRUTE_FORCE_MAX_FAILURES`, `BRUTE_FORCE_TIME_WINDOW` |
 | **Slow & Low** | ≥ 10 failed logins from same IP | 600 s | `SLOW_ATTACK_MAX_FAILURES`, `SLOW_ATTACK_TIME_WINDOW` |
 | **Password Spray** | ≥ 4 unique usernames from same IP | 300 s | `SPRAY_MAX_USERNAMES`, `SPRAY_TIME_WINDOW` |
+| **Persistent / Low-and-Slow** | ≥ 12 cumulative failed logins from same IP | 3600 s (1 h) | `PERSISTENT_MAX_FAILURES`, `PERSISTENT_TIME_WINDOW` |
 | **Geo Block** | IP not in whitelist / from blocked country | — | geo mode via dashboard |
+
+> **Why the Persistent detector exists:** a real attacker (e.g. `106.0.54.50`) was observed pacing attempts ~90 s apart — too slow for Brute Force (5/60s), under the Slow & Low count (10/600s), and single-username (evades Spray). It slipped through all three rate-based detectors. The Persistent detector is a cumulative-total catch-all: any IP that racks up 12+ failures in an hour gets blocked + SMS regardless of pacing. Added to `SMS_ALERT_TYPES`.
 
 All detections fire `handle_detection()` → AbuseIPDB enrichment → firewall block → YARA scan → SMS alert → DB log.
 
@@ -261,6 +264,15 @@ Modal markup must be present in the page:
 - [x] YARA Controller page migrated to shared light theme (removed embedded dark CSS)
 - [x] Bug fix: `database.py init_db()` called `create_yara_tables()` before committing its own connection, causing `sqlite3.OperationalError: database is locked` on every fresh start. Fixed by committing and closing the main connection first, then calling `create_yara_tables()`
 - [x] Cloud deployment to AWS EC2 Windows Server (public honeypot for real attack data collection)
+- [x] Persistent / low-and-slow detector (`detect_persistent_attacker`): cumulative-failure catch-all that blocks + SMS attackers pacing under the rate thresholds. New config: `PERSISTENT_MAX_FAILURES` (12), `PERSISTENT_TIME_WINDOW` (3600 s); `persistent_attack` added to `SMS_ALERT_TYPES`
+- [x] Manual block from dashboard: `/block` route + manual-block form in Blocked IPs section + per-row Block button on every Recent Failed Login
+- [x] Attempts column (total failed logins per IP) in Blocked IPs and Recent Alerts tables (subquery on `failed_logins`)
+- [x] Country column in Recent Failed Logins: agent now geo-caches public attacker IPs (`get_ip_geolocation` in `process_failed_login`); `get_recent_failed_logins` LEFT JOINs `geo_cache`
+- [x] Badge + row styling and bar-chart label for the new `persistent_attack` alert type (teal `#0891b2`)
+
+### Deploying these changes to the server
+Code files (`rdpshield.py`, `database.py`, `dashboard.py`, `static/style.css`, `templates/index.html`) deploy normally. **No DB migration needed** (joins/subqueries, no new columns).
+⚠ `config.py` is gitignored — the new `PERSISTENT_*` settings and updated `SMS_ALERT_TYPES` must be **added by hand** to the server's `config.py`, then restart both scheduled tasks.
 
 ---
 
