@@ -102,6 +102,7 @@
                         <th>Time</th>
                         <th>Type</th>
                         <th>Attacker IP</th>
+                        <th>Attempts</th>
                         <th>Location</th>
                         <th>Abuse Score</th>
                         <th>Description</th>
@@ -115,6 +116,7 @@
                         <td>{{ alert.timestamp[:19] }}</td>
                         <td><span class="badge badge-{{ alert.alert_type }}">{{ alert.alert_type }}</span></td>
                         <td class="ip">{{ alert.source_ip }}</td>
+                        <td><strong>{{ alert.attempts }}</strong></td>
                         <td>{{ alert.geo_city }}{% if alert.geo_country %}, {{ alert.geo_country }}{% endif %}</td>
                         <td>
                             {% if alert.abuse_score >= 75 %}
@@ -140,11 +142,22 @@
         <!-- Blocked IPs -->
         <div class="section">
             <h2>&#128683; Blocked IPs</h2>
+
+            <!-- Manual block form -->
+            <form method="POST" action="/block" class="inline-form confirm-form"
+                  data-confirm-message="Block this IP at the Windows Firewall? All inbound traffic from it will be dropped."
+                  data-confirm-title="Block IP address" data-confirm-ok="Block" data-confirm-danger="true">
+                <input type="text" name="ip_address" placeholder="IP address to block (e.g., 106.0.54.50)" class="form-input" required>
+                <input type="text" name="reason" placeholder="Reason (optional)" class="form-input">
+                <button type="submit" class="btn-add">Block IP</button>
+            </form>
+
             {% if blocked %}
             <table>
                 <thead>
                     <tr>
                         <th>IP Address</th>
+                        <th>Attempts</th>
                         <th>Reason</th>
                         <th>Blocked At</th>
                         <th>Action</th>
@@ -154,6 +167,7 @@
                     {% for ip in blocked %}
                     <tr>
                         <td class="ip">{{ ip.ip_address }}</td>
+                        <td><strong>{{ ip.attempts }}</strong></td>
                         <td>{{ ip.reason }}</td>
                         <td>{{ ip.blocked_at }}</td>
                         <td>
@@ -182,9 +196,11 @@
                     <tr>
                         <th>Time</th>
                         <th>Source IP</th>
+                        <th>Country</th>
                         <th>Username</th>
                         <th>Domain</th>
                         <th>Sub Status</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -192,9 +208,20 @@
                     <tr>
                         <td>{{ event.timestamp[:19] }}</td>
                         <td class="ip">{{ event.source_ip }}</td>
+                        <td>{{ event.geo_country if event.geo_country else '&mdash;' | safe }}</td>
                         <td>{{ event.username }}</td>
                         <td>{{ event.domain }}</td>
                         <td><code>{{ event.sub_status }}</code></td>
+                        <td>
+                            <form method="POST" action="/block" class="confirm-form"
+                                  data-confirm-message="Block {{ event.source_ip }} at the Windows Firewall? All inbound traffic from it will be dropped."
+                                  data-confirm-title="Block IP address" data-confirm-ok="Block" data-confirm-danger="true"
+                                  style="display:inline;">
+                                <input type="hidden" name="ip_address" value="{{ event.source_ip }}">
+                                <input type="hidden" name="reason" value="Manually blocked from failed-login list">
+                                <button type="submit" class="btn-remove">Block</button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -289,12 +316,14 @@
                 brute_force: 'Brute Force',
                 slow_attack: 'Slow & Low',
                 password_spray: 'Password Spray',
+                persistent_attack: 'Persistent',
                 geo_block: 'Geo Block',
             };
             const palette = {
                 brute_force: colorVar('--critical'),
                 slow_attack: colorVar('--high'),
                 password_spray: colorVar('--purple'),
+                persistent_attack: '#0891b2',
                 geo_block: colorVar('--brand'),
             };
             const fallback = ['#16a34a', '#0891b2', '#9333ea'];

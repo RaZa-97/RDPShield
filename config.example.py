@@ -24,6 +24,12 @@ SLOW_ATTACK_TIME_WINDOW = 600  # seconds (10 minutes)
 SPRAY_MAX_USERNAMES = 4
 SPRAY_TIME_WINDOW = 300  # seconds (5 minutes)
 
+# --- Persistent / Low-and-Slow Attack ---
+# Catches attackers that pace attempts to stay under the rate thresholds.
+# Flags an IP that accumulates X total failures within a wide window.
+PERSISTENT_MAX_FAILURES = 12
+PERSISTENT_TIME_WINDOW = 3600  # seconds (1 hour)
+
 # =============================================================================
 # AUTO-BLOCK SETTINGS
 # =============================================================================
@@ -58,7 +64,7 @@ NOTIFY_API_KEY = "YOUR_API_KEY"
 NOTIFY_SENDER_ID = "NotifyDEMO"   # Use "NotifyDEMO" for testing
 ALERT_TO_NUMBER = "94XXXXXXXXX"   # Your phone number (format: 9471XXXXXXX)
 
-SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "geo_block", "yara_critical"]
+SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "persistent_attack", "geo_block", "yara_critical"]
 
 # =============================================================================
 # DASHBOARD SETTINGS

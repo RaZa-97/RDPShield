@@ -409,11 +409,19 @@ def get_unique_usernames_for_ip(source_ip, since_seconds):
 
 
 def get_recent_alerts(limit=50):
-    """Get the most recent alerts for the dashboard."""
+    """
+    Get the most recent alerts for the dashboard. Each alert also carries
+    `attempts` — the total number of failed logins ever recorded from that
+    attacker IP — so the dashboard can show how many tries the IP made.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?
+        SELECT a.*,
+               (SELECT COUNT(*) FROM failed_logins f
+                WHERE f.source_ip = a.source_ip) AS attempts
+        FROM alerts a
+        ORDER BY a.created_at DESC LIMIT ?
     """, (limit,))
     rows = cursor.fetchall()
     conn.close()
@@ -421,12 +429,19 @@ def get_recent_alerts(limit=50):
 
 
 def get_blocked_ips():
-    """Get all currently blocked IPs for the dashboard."""
+    """
+    Get all currently blocked IPs for the dashboard. Each row also carries
+    `attempts` — the total failed logins recorded from that IP.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT * FROM blocked_ips WHERE is_active = 1
-        ORDER BY blocked_at DESC
+        SELECT b.*,
+               (SELECT COUNT(*) FROM failed_logins f
+                WHERE f.source_ip = b.ip_address) AS attempts
+        FROM blocked_ips b
+        WHERE b.is_active = 1
+        ORDER BY b.blocked_at DESC
     """)
     rows = cursor.fetchall()
     conn.close()
@@ -434,11 +449,18 @@ def get_blocked_ips():
 
 
 def get_recent_failed_logins(limit=100):
-    """Get the most recent failed login events."""
+    """
+    Get the most recent failed login events, joined with the geo cache so
+    each row carries the attacker's country (when known). geo_country is
+    NULL/empty for private IPs or IPs not yet geolocated.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT * FROM failed_logins ORDER BY timestamp DESC LIMIT ?
+        SELECT fl.*, gc.country AS geo_country, gc.city AS geo_city
+        FROM failed_logins fl
+        LEFT JOIN geo_cache gc ON gc.ip_address = fl.source_ip
+        ORDER BY fl.timestamp DESC LIMIT ?
     """, (limit,))
     rows = cursor.fetchall()
     conn.close()

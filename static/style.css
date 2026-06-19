@@ -446,6 +446,11 @@ code {
     color: var(--purple);
 }
 
+.badge-persistent_attack {
+    background: rgba(8, 145, 178, 0.1);
+    color: #0891b2;
+}
+
 .badge-geo_block {
     background: rgba(47, 95, 224, 0.1);
     color: var(--brand);
@@ -486,6 +491,7 @@ code {
 .alert-row-brute_force { border-left: 3px solid var(--critical); }
 .alert-row-slow_attack { border-left: 3px solid var(--high); }
 .alert-row-password_spray { border-left: 3px solid var(--purple); }
+.alert-row-persistent_attack { border-left: 3px solid #0891b2; }
 .alert-row-geo_block { border-left: 3px solid var(--brand); }
 .geo-row-blocked { border-left: 3px solid var(--critical); }
 .geo-row-allowed { border-left: 3px solid var(--ok); }

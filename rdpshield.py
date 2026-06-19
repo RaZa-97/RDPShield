@@ -43,6 +43,8 @@ from config import (
     SLOW_ATTACK_TIME_WINDOW,
     SPRAY_MAX_USERNAMES,
     SPRAY_TIME_WINDOW,
+    PERSISTENT_MAX_FAILURES,
+    PERSISTENT_TIME_WINDOW,
     WHITELIST_IPS,
     GEO_BLOCK_ENABLED,
     PRIVATE_IP_PREFIXES,
@@ -456,6 +458,12 @@ def process_failed_login(event):
         workstation=event.get("workstation", ""),
     )
 
+    # Best-effort: geolocate public attacker IPs so the dashboard can show
+    # the country for each failed login. get_ip_geolocation caches results,
+    # so repeated attempts from the same IP cost no extra API calls.
+    if not is_private_ip(ip):
+        get_ip_geolocation(ip)
+
     # Skip further analysis if already blocked
     if is_ip_blocked(ip):
         print(f"[DETECT] {ip} is already blocked. Skipping detection.")
@@ -486,6 +494,15 @@ def process_failed_login(event):
             "password_spray", ip,
             f"{len(usernames)} unique usernames targeted: "
             f"{', '.join(usernames)}"
+        )
+        return
+
+    is_persistent, total = detect_persistent_attacker(ip)
+    if is_persistent:
+        handle_detection(
+            "persistent_attack", ip,
+            f"{total} failed logins in {PERSISTENT_TIME_WINDOW // 60} min "
+            f"(low-and-slow pattern, last user: {username})"
         )
         return
 
@@ -581,6 +598,23 @@ def detect_password_spray(source_ip):
     if len(usernames) >= SPRAY_MAX_USERNAMES:
         return True, usernames
     return False, usernames
+
+
+def detect_persistent_attacker(source_ip):
+    """
+    DETECTION ALGORITHM 4: Persistent / Low-and-Slow attacker.
+
+    Catches attackers who deliberately pace their attempts to stay UNDER the
+    brute-force (5/60s) and slow-attack (10/600s) thresholds — e.g. one try
+    every ~90 seconds. No single short window trips the other detectors, but
+    the cumulative total over a wide window (default 12 failures in 1 hour)
+    exposes a determined attacker that would otherwise slip through.
+    """
+    records = get_failed_logins_for_ip(source_ip, PERSISTENT_TIME_WINDOW)
+    count = len(records)
+    if count >= PERSISTENT_MAX_FAILURES:
+        return True, count
+    return False, count
 
 
 # =============================================================================
@@ -680,6 +714,8 @@ def main():
           f"in {SLOW_ATTACK_TIME_WINDOW}s")
     print(f"  Spray: {SPRAY_MAX_USERNAMES} usernames "
           f"in {SPRAY_TIME_WINDOW}s")
+    print(f"  Persistent: {PERSISTENT_MAX_FAILURES} failures "
+          f"in {PERSISTENT_TIME_WINDOW}s")
     print(f"[MONITOR] Whitelist: {WHITELIST_IPS}")
     print(f"\n[MONITOR] Waiting for login events...\n")
 

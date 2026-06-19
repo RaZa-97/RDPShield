@@ -42,7 +42,7 @@ from database import (
     get_geo_events,
     get_geo_stats,
 )
-from firewall import unblock_ip
+from firewall import unblock_ip, block_ip
 from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG
 from countries import COUNTRY_NAMES
 
@@ -199,6 +199,23 @@ def unblock(ip_address):
     success = unblock_ip(ip_address)
     if success:
         print(f"[DASHBOARD] Manually unblocked {ip_address}")
+    return redirect(url_for("index"))
+
+
+@app.route("/block", methods=["POST"])
+def block():
+    """
+    Manually block an IP address from the dashboard.
+    The IP comes from a form field; an optional reason can be supplied.
+    """
+    ip = request.form.get("ip_address", "").strip()
+    reason = request.form.get("reason", "").strip() or "Manually blocked from dashboard"
+    if ip:
+        success = block_ip(ip, reason=reason)
+        if success:
+            print(f"[DASHBOARD] Manually blocked {ip} ({reason})")
+        else:
+            print(f"[DASHBOARD] Could not block {ip} (whitelisted, already blocked, or disabled)")
     return redirect(url_for("index"))
 
 
