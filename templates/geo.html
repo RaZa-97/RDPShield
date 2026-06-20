@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RDPShield - Geolocation Settings</title>
+    <title>RDPShield - Advanced Security</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -14,7 +14,7 @@
             <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
             <div class="nav-links">
                 <a href="/" class="nav-link">Dashboard</a>
-                <a href="/geo" class="nav-link active">Geolocation</a>
+                <a href="/geo" class="nav-link active">Advanced Security</a>
                 <a href="/yara" class="nav-link">YARA Controller</a>
             </div>
         </nav>
@@ -22,49 +22,28 @@
         <!-- Header -->
         <header>
             <div>
-                <h1>Geolocation Settings</h1>
-                <p class="subtitle">Control remote access based on geographic location</p>
+                <h1>Advanced Security</h1>
+                <p class="subtitle">Geographic and IP-based access control</p>
             </div>
+            {% set mode_labels = {'allow_anywhere': 'Allow from anywhere', 'country_list': 'Country whitelist', 'private_and_allowed': 'Whitelist-only (IP)'} %}
+            <span class="live-pill">Active mode &middot; {{ mode_labels.get(mode, mode) }}</span>
         </header>
 
-        <!-- Geo Stats -->
-        <div class="stats-grid stats-grid-3">
-            <div class="stat-card">
-                <div class="stat-number">{{ geo_stats.total_geo_blocked }}</div>
-                <div class="stat-label">Geo-Blocked</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{{ geo_stats.total_geo_allowed }}</div>
-                <div class="stat-label">Geo-Allowed</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{{ geo_stats.top_blocked_country.country }}</div>
-                <div class="stat-label">Top Blocked Country</div>
-            </div>
-        </div>
-
-        <!-- Access Control Mode -->
+        <!-- ================= SECTION 1: GEOLOCATION SETTINGS ================= -->
         <div class="section">
-            <h2>&#128274; Access Control Mode</h2>
-            <p class="section-desc">Control remote access by restricting or permitting connections based on country. Block unwanted countries and allow access only from the specific ones you choose or limit access exclusively to private and whitelisted IP addresses.</p>
+            <h2>&#127758; Geolocation Settings
+                {% if mode in ['allow_anywhere', 'country_list'] %}<span class="badge badge-geo-allowed">ACTIVE</span>{% endif %}
+            </h2>
+            <p class="section-desc">Control remote access based on geographic location. Either allow connections from anywhere (attack detection only), or restrict access to a whitelist of countries.</p>
 
             <form method="POST" action="/geo/set_mode" class="mode-form" id="geoModeForm">
                 <div class="mode-options">
                     <label class="mode-option {% if mode == 'allow_anywhere' %}mode-selected{% endif %}">
                         <input type="radio" name="geo_mode" value="allow_anywhere"
-                               {% if mode == 'allow_anywhere' %}checked{% endif %}>
+                               {% if mode != 'country_list' %}checked{% endif %}>
                         <div class="mode-content">
                             <span class="mode-title">&#127760; Allow connections from anywhere</span>
-                            <span class="mode-desc">No geographic restrictions. Only attack detection (brute force, spray) is active.</span>
-                        </div>
-                    </label>
-
-                    <label class="mode-option {% if mode == 'private_and_allowed' %}mode-selected{% endif %}">
-                        <input type="radio" name="geo_mode" value="private_and_allowed"
-                               {% if mode == 'private_and_allowed' %}checked{% endif %}>
-                        <div class="mode-content">
-                            <span class="mode-title">&#128272; Allow connections only from whitelisted IP addresses</span>
-                            <span class="mode-desc">Nobody connects unless their IP is explicitly added to the whitelist below &mdash; public <strong>and</strong> private IPs, with no automatic pass. Make sure your own admin IP is whitelisted before applying this mode, or you will lock yourself out.</span>
+                            <span class="mode-desc">No geographic restrictions. Only attack detection (brute force, spray, persistent) is active.</span>
                         </div>
                     </label>
 
@@ -72,26 +51,47 @@
                         <input type="radio" name="geo_mode" value="country_list"
                                {% if mode == 'country_list' %}checked{% endif %}>
                         <div class="mode-content">
-                            <span class="mode-title">&#127757; Allow connections only from this list of countries:</span>
+                            <span class="mode-title">&#127757; Allow connections only from this list of countries</span>
                             <span class="mode-desc">Only IPs from countries in your allowed list can connect. All other countries are blocked.</span>
                         </div>
                     </label>
                 </div>
 
-                <p id="lockoutWarning" class="warning-text" style="display:none;"></p>
+                <p id="geoLockoutWarning" class="warning-text" style="display:none;"></p>
 
                 <div class="mode-apply">
-                    <button type="submit" class="btn-apply" id="applyModeBtn">Apply now</button>
+                    <button type="submit" class="btn-apply" id="geoApplyBtn">Apply geolocation mode</button>
                 </div>
             </form>
-        </div>
 
-        <!-- Allowed Countries (for country_list mode) -->
-        <div class="section">
-            <h2>&#127758; Allowed Countries</h2>
-            <p class="section-desc">Countries in this list are permitted to connect when "country list" mode is active. Country names must match ip-api.com format (e.g., "Sri Lanka", "United States", "India").</p>
+            <!-- Geolocation stats + graph -->
+            <div class="charts-row">
+                <div class="chart-panel">
+                    <h2>Geolocation Activity</h2>
+                    <div class="chart-sub">Allowed vs blocked (country checks)</div>
+                    <div class="chart-canvas-wrap"><canvas id="geoChart"></canvas></div>
+                </div>
+                <div class="chart-panel">
+                    <div class="stats-grid stats-grid-3" style="margin:0;">
+                        <div class="stat-card tone-info">
+                            <div class="stat-label">Allowed</div>
+                            <div class="stat-number">{{ geo_cat_stats.allowed }}</div>
+                        </div>
+                        <div class="stat-card tone-critical">
+                            <div class="stat-label">Blocked</div>
+                            <div class="stat-number">{{ geo_cat_stats.blocked }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Top Blocked Country</div>
+                            <div class="stat-number" style="font-size:1.1rem;">{{ geo_cat_stats.top_blocked_country.country }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-            <!-- Add Country Form -->
+            <!-- Allowed Countries -->
+            <h3 style="margin-top:24px;">&#9989; Allowed Countries</h3>
+            <p class="section-desc">Countries here are permitted when "country list" mode is active. Names must match ip-api.com format (e.g., "Sri Lanka", "United States").</p>
             <form method="POST" action="/geo/add_country" class="inline-form">
                 <input type="text" name="country_name" placeholder="Enter country name (e.g., Sri Lanka)" class="form-input" list="countrySuggestions" autocomplete="off" required>
                 <datalist id="countrySuggestions">
@@ -101,17 +101,9 @@
                 </datalist>
                 <button type="submit" class="btn-add">Add Country</button>
             </form>
-
-            <!-- Countries List -->
             {% if countries %}
             <table>
-                <thead>
-                    <tr>
-                        <th>Country</th>
-                        <th>Added</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>Country</th><th>Added</th><th>Action</th></tr></thead>
                 <tbody>
                     {% for c in countries %}
                     <tr>
@@ -132,31 +124,102 @@
             {% else %}
             <p class="empty">No countries added yet. Add countries above to use country list mode.</p>
             {% endif %}
+
+            <!-- Geolocation Event Log -->
+            <h3 style="margin-top:24px;">&#128196; Geolocation Event Log</h3>
+            {% if geo_events %}
+            <table>
+                <thead>
+                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Event</th><th>Action</th><th>Reason</th></tr>
+                </thead>
+                <tbody>
+                    {% for e in geo_events %}
+                    <tr class="{% if e.action == 'blocked' %}geo-row-blocked{% else %}geo-row-allowed{% endif %}">
+                        <td>{{ e.timestamp[:19] }}</td>
+                        <td class="ip">{{ e.source_ip }}</td>
+                        <td>{{ e.username }}</td>
+                        <td>{{ e.country }}</td>
+                        <td>{{ e.city }}</td>
+                        <td>{{ e.isp }}</td>
+                        <td>{{ e.event_type }}</td>
+                        <td>
+                            {% if e.action == 'blocked' %}<span class="badge badge-geo-blocked">BLOCKED</span>
+                            {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}
+                        </td>
+                        <td class="description">{{ e.reason }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No geolocation events yet. Events appear here when country-list mode is active and public IPs connect.</p>
+            {% endif %}
         </div>
 
-        <!-- Allowed IPs (for private_and_allowed / whitelist-only mode) -->
+        <!-- ================= SECTION 2: WHITELIST SETTINGS ================= -->
         <div class="section">
-            <h2>&#128272; Allowed IP Addresses</h2>
-            <p class="section-desc">When "whitelist only" mode is active, <strong>only</strong> the IP addresses listed here can connect &mdash; public or private. Any IP not listed below is blocked, including internal/private addresses.</p>
+            <h2>&#128272; Whitelist Settings
+                {% if mode == 'private_and_allowed' %}<span class="badge badge-geo-allowed">ACTIVE</span>{% endif %}
+            </h2>
+            <p class="section-desc">Lock access down to an explicit IP allow list. When enabled, nobody connects unless their IP is listed below &mdash; public <strong>and</strong> private, with no automatic pass.</p>
 
-            <!-- Add IP Form -->
+            <form method="POST" action="/geo/set_mode" class="mode-form" id="whitelistModeForm">
+                <input type="hidden" name="geo_mode" value="private_and_allowed">
+                <div class="mode-options">
+                    <label class="mode-option {% if mode == 'private_and_allowed' %}mode-selected{% endif %}">
+                        <div class="mode-content">
+                            <span class="mode-title">&#128272; Allow connections only from whitelisted IP addresses</span>
+                            <span class="mode-desc">Make sure your own admin IP is whitelisted below before enabling, or you will lock yourself out. To turn this off again, apply a Geolocation mode above.</span>
+                        </div>
+                    </label>
+                </div>
+
+                <p id="wlLockoutWarning" class="warning-text" style="display:none;"></p>
+
+                <div class="mode-apply">
+                    <button type="submit" class="btn-apply" id="wlApplyBtn"
+                            {% if mode == 'private_and_allowed' %}disabled{% endif %}>
+                        {% if mode == 'private_and_allowed' %}Whitelist-only mode is active{% else %}Enable whitelist-only mode{% endif %}
+                    </button>
+                </div>
+            </form>
+
+            <!-- Whitelist stats + graph -->
+            <div class="charts-row">
+                <div class="chart-panel">
+                    <h2>Whitelist Activity</h2>
+                    <div class="chart-sub">Allowed vs blocked (IP checks)</div>
+                    <div class="chart-canvas-wrap"><canvas id="whitelistChart"></canvas></div>
+                </div>
+                <div class="chart-panel">
+                    <div class="stats-grid stats-grid-3" style="margin:0;">
+                        <div class="stat-card tone-info">
+                            <div class="stat-label">Allowed</div>
+                            <div class="stat-number">{{ whitelist_cat_stats.allowed }}</div>
+                        </div>
+                        <div class="stat-card tone-critical">
+                            <div class="stat-label">Blocked</div>
+                            <div class="stat-number">{{ whitelist_cat_stats.blocked }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Whitelisted IPs</div>
+                            <div class="stat-number">{{ allowed_ips | length }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Allowed IPs -->
+            <h3 style="margin-top:24px;">&#9989; Allowed IP Addresses</h3>
+            <p class="section-desc"><strong>Only</strong> the IPs listed here can connect when whitelist-only mode is active &mdash; public or private.</p>
             <form method="POST" action="/geo/add_ip" class="inline-form">
                 <input type="text" name="ip_address" placeholder="IP address (e.g., 203.0.113.50 or 10.0.100.5)" class="form-input" required>
                 <input type="text" name="description" placeholder="Description (optional)" class="form-input">
                 <button type="submit" class="btn-add">Add IP</button>
             </form>
-
-            <!-- IPs List -->
             {% if allowed_ips %}
             <table>
-                <thead>
-                    <tr>
-                        <th>IP Address</th>
-                        <th>Description</th>
-                        <th>Added</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>IP Address</th><th>Description</th><th>Added</th><th>Action</th></tr></thead>
                 <tbody>
                     {% for ip in allowed_ips %}
                     <tr>
@@ -178,28 +241,16 @@
             {% else %}
             <p class="empty">No IPs whitelisted yet.</p>
             {% endif %}
-        </div>
 
-        <!-- Geo Events Log -->
-        <div class="section">
-            <h2>&#128196; Geo-Block Log</h2>
-            {% if geo_events %}
+            <!-- Whitelist Event Log -->
+            <h3 style="margin-top:24px;">&#128196; Whitelist Event Log</h3>
+            {% if whitelist_events %}
             <table>
                 <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>IP Address</th>
-                        <th>User</th>
-                        <th>Country</th>
-                        <th>City</th>
-                        <th>ISP</th>
-                        <th>Event</th>
-                        <th>Action</th>
-                        <th>Reason</th>
-                    </tr>
+                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Event</th><th>Action</th><th>Reason</th></tr>
                 </thead>
                 <tbody>
-                    {% for e in geo_events %}
+                    {% for e in whitelist_events %}
                     <tr class="{% if e.action == 'blocked' %}geo-row-blocked{% else %}geo-row-allowed{% endif %}">
                         <td>{{ e.timestamp[:19] }}</td>
                         <td class="ip">{{ e.source_ip }}</td>
@@ -209,11 +260,8 @@
                         <td>{{ e.isp }}</td>
                         <td>{{ e.event_type }}</td>
                         <td>
-                            {% if e.action == 'blocked' %}
-                                <span class="badge badge-geo-blocked">BLOCKED</span>
-                            {% else %}
-                                <span class="badge badge-geo-allowed">ALLOWED</span>
-                            {% endif %}
+                            {% if e.action == 'blocked' %}<span class="badge badge-geo-blocked">BLOCKED</span>
+                            {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}
                         </td>
                         <td class="description">{{ e.reason }}</td>
                     </tr>
@@ -221,13 +269,12 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="empty">No geo events recorded yet. Events will appear here when geo-blocking is active and public IPs connect.</p>
+            <p class="empty">No whitelist events yet. Events appear here when whitelist-only mode is active and IPs connect.</p>
             {% endif %}
         </div>
 
-        <!-- Footer -->
         <footer>
-            <p>RDPShield v3.1 | Geolocation Settings</p>
+            <p>RDPShield v3.1 | Advanced Security</p>
         </footer>
     </div>
 
@@ -243,63 +290,87 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
     <script>
         const allowedIpCount = {{ allowed_ips | length }};
         const allowedCountryCount = {{ countries | length }};
 
-        // Modes that can fully lock out remote access if their whitelist is empty.
-        const MODE_GUARDS = {
-            private_and_allowed: {
-                count: allowedIpCount,
-                warning: '⚠ No IPs are whitelisted yet. Add at least one IP below — ' +
-                    'including your own admin IP — before applying this mode, or you will lock yourself out.',
-                confirmMsg: 'Whitelist-only mode will block EVERY IP — public and private — ' +
-                    'except the ones in your Allowed IP Addresses list below.\n\n' +
-                    'Make sure your own admin/RDP IP is already whitelisted before continuing, ' +
-                    'or you will lock yourself out.\n\nApply this mode now?'
-            },
-            country_list: {
-                count: allowedCountryCount,
-                warning: '⚠ No countries are whitelisted yet. Add at least one country below ' +
-                    '— including your own — before applying this mode, or all remote logins will be blocked.',
-                confirmMsg: 'Country whitelist mode will block every country except the ones in your ' +
-                    'Allowed Countries list below.\n\nMake sure your own country is already added before continuing, ' +
-                    'or you may lock yourself out if you connect from a public IP.\n\nApply this mode now?'
-            }
-        };
-
-        const modeRadios = document.querySelectorAll('input[name="geo_mode"]');
-        const applyBtn = document.getElementById('applyModeBtn');
-        const lockoutWarning = document.getElementById('lockoutWarning');
+        // ---- Geolocation mode form (allow_anywhere / country_list) ----
         const geoModeForm = document.getElementById('geoModeForm');
+        const geoApplyBtn = document.getElementById('geoApplyBtn');
+        const geoLockoutWarning = document.getElementById('geoLockoutWarning');
 
-        function selectedMode() {
-            const checked = document.querySelector('input[name="geo_mode"]:checked');
+        function geoSelectedMode() {
+            const checked = geoModeForm.querySelector('input[name="geo_mode"]:checked');
             return checked ? checked.value : null;
         }
-
-        function updateApplyState() {
-            const guard = MODE_GUARDS[selectedMode()];
-            const blocked = guard && guard.count === 0;
-            applyBtn.disabled = !!blocked;
-            lockoutWarning.style.display = blocked ? 'block' : 'none';
-            lockoutWarning.textContent = blocked ? guard.warning : '';
+        function updateGeoApplyState() {
+            const blocked = geoSelectedMode() === 'country_list' && allowedCountryCount === 0;
+            geoApplyBtn.disabled = blocked;
+            geoLockoutWarning.style.display = blocked ? 'block' : 'none';
+            geoLockoutWarning.textContent = blocked
+                ? '⚠ No countries are whitelisted yet. Add at least one country — including your own — before applying, or all remote logins will be blocked.'
+                : '';
         }
-
-        modeRadios.forEach(r => r.addEventListener('change', updateApplyState));
-        updateApplyState();
-
+        geoModeForm.querySelectorAll('input[name="geo_mode"]').forEach(r => r.addEventListener('change', updateGeoApplyState));
+        updateGeoApplyState();
         geoModeForm.addEventListener('submit', function (e) {
-            const guard = MODE_GUARDS[selectedMode()];
-            if (guard) {
+            if (geoSelectedMode() === 'country_list') {
                 e.preventDefault();
-                showConfirm(guard.confirmMsg, () => geoModeForm.submit(), {
-                    title: 'Apply access control mode',
-                    okText: 'Apply anyway',
-                    danger: true,
-                });
+                showConfirm('Country whitelist mode will block every country except the ones in your Allowed Countries list.\n\n' +
+                    'Make sure your own country is added first, or you may lock yourself out if you connect from a public IP.\n\nApply this mode now?',
+                    () => geoModeForm.submit(),
+                    { title: 'Apply geolocation mode', okText: 'Apply anyway', danger: true });
             }
         });
+
+        // ---- Whitelist mode form (private_and_allowed) ----
+        const whitelistModeForm = document.getElementById('whitelistModeForm');
+        const wlApplyBtn = document.getElementById('wlApplyBtn');
+        const wlLockoutWarning = document.getElementById('wlLockoutWarning');
+        const wlAlreadyActive = {{ 'true' if mode == 'private_and_allowed' else 'false' }};
+
+        if (!wlAlreadyActive) {
+            const wlBlocked = allowedIpCount === 0;
+            wlApplyBtn.disabled = wlBlocked;
+            wlLockoutWarning.style.display = wlBlocked ? 'block' : 'none';
+            wlLockoutWarning.textContent = wlBlocked
+                ? '⚠ No IPs are whitelisted yet. Add at least one IP — including your own admin IP — before enabling, or you will lock yourself out.'
+                : '';
+        }
+        whitelistModeForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            showConfirm('Whitelist-only mode will block EVERY IP — public and private — except the ones in your Allowed IP Addresses list.\n\n' +
+                'Make sure your own admin/RDP IP is already whitelisted, or you will lock yourself out.\n\nEnable this mode now?',
+                () => whitelistModeForm.submit(),
+                { title: 'Enable whitelist-only mode', okText: 'Enable anyway', danger: true });
+        });
+
+        // ---- Per-section Allowed vs Blocked mini bar charts ----
+        function miniBar(canvasId, allowed, blocked) {
+            const el = document.getElementById(canvasId);
+            if (!el) return;
+            new Chart(el, {
+                type: 'bar',
+                data: {
+                    labels: ['Allowed', 'Blocked'],
+                    datasets: [{
+                        data: [allowed, blocked],
+                        backgroundColor: ['#16a34a', '#dc2626'],
+                        borderRadius: 8,
+                        maxBarThickness: 70,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#eef1f6' } } }
+                }
+            });
+        }
+        miniBar('geoChart', {{ geo_cat_stats.allowed }}, {{ geo_cat_stats.blocked }});
+        miniBar('whitelistChart', {{ whitelist_cat_stats.allowed }}, {{ whitelist_cat_stats.blocked }});
     </script>
 </body>
 </html>

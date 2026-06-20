@@ -42,6 +42,7 @@ from database import (
     remove_allowed_ip,
     get_geo_events,
     get_geo_stats,
+    get_geo_category_stats,
 )
 from firewall import unblock_ip, block_ip
 from alerts import process_alert_enrichment
@@ -92,14 +93,18 @@ def index():
 @app.route("/geo")
 def geo_settings():
     """
-    Geolocation settings page.
-    Shows the three mode options, country list, IP list, and event log.
+    Advanced Security page.
+    Two sections — Geolocation Settings (allow-anywhere / country-list) and
+    Whitelist Settings (whitelist-only) — each with its own event log + stats.
     """
     mode = get_geo_mode()
     countries = get_allowed_countries()
     allowed_ips = get_allowed_ips()
-    geo_events = get_geo_events(limit=50)
-    geo_stats = get_geo_stats()
+
+    geo_events = get_geo_events(limit=50, category="geo")
+    whitelist_events = get_geo_events(limit=50, category="whitelist")
+    geo_cat_stats = get_geo_category_stats("geo")
+    whitelist_cat_stats = get_geo_category_stats("whitelist")
 
     return render_template(
         "geo.html",
@@ -107,7 +112,9 @@ def geo_settings():
         countries=countries,
         allowed_ips=allowed_ips,
         geo_events=geo_events,
-        geo_stats=geo_stats,
+        whitelist_events=whitelist_events,
+        geo_cat_stats=geo_cat_stats,
+        whitelist_cat_stats=whitelist_cat_stats,
         country_suggestions=COUNTRY_NAMES,
     )
 

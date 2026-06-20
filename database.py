@@ -170,6 +170,18 @@ def init_db():
         )
     """)
 
+    # Migration: tag each geo event with a category so the Advanced Security
+    # page can show a separate log/graph per section:
+    #   "geo"       = country-based check (allow_anywhere / country_list)
+    #   "whitelist" = IP-whitelist check (private_and_allowed)
+    # Existing rows are backfilled from their reason text.
+    cursor.execute("PRAGMA table_info(geo_events)")
+    geo_cols = {row[1] for row in cursor.fetchall()}
+    if "category" not in geo_cols:
+        cursor.execute("ALTER TABLE geo_events ADD COLUMN category TEXT DEFAULT ''")
+        cursor.execute("UPDATE geo_events SET category='whitelist' WHERE reason LIKE 'IP %'")
+        cursor.execute("UPDATE geo_events SET category='geo' WHERE reason LIKE 'Country%'")
+
     conn.commit()
     conn.close()
     create_yara_tables()
@@ -803,7 +815,7 @@ def cache_geo(ip_address, country="", city="", isp="", country_code=""):
 # --- Geo Events Log ---
 
 def log_geo_event(source_ip, username, country, city, isp,
-                  event_type, action, reason=""):
+                  event_type, action, reason="", category=""):
     """
     Log a geo-checked connection attempt.
 
@@ -816,30 +828,73 @@ def log_geo_event(source_ip, username, country, city, isp,
         event_type: "failed_login" or "successful_login"
         action: "allowed" or "blocked"
         reason: Why it was blocked (e.g., "Country not in allowed list")
+        category: "geo" (country-based) or "whitelist" (IP-whitelist-based)
     """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO geo_events
             (source_ip, username, country, city, isp,
-             event_type, action, reason)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             event_type, action, reason, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (source_ip, username, country, city, isp,
-          event_type, action, reason))
+          event_type, action, reason, category))
     conn.commit()
     conn.close()
 
 
-def get_geo_events(limit=100):
-    """Get recent geo events for the dashboard."""
+def get_geo_events(limit=100, category=None):
+    """
+    Get recent geo events for the dashboard.
+    If category is given ("geo" or "whitelist"), only events of that category
+    are returned (so each Advanced Security section gets its own log).
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT * FROM geo_events ORDER BY timestamp DESC LIMIT ?
-    """, (limit,))
+    if category:
+        cursor.execute("""
+            SELECT * FROM geo_events WHERE category = ?
+            ORDER BY timestamp DESC LIMIT ?
+        """, (category, limit))
+    else:
+        cursor.execute("""
+            SELECT * FROM geo_events ORDER BY timestamp DESC LIMIT ?
+        """, (limit,))
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def get_geo_category_stats(category):
+    """
+    Allowed/blocked counts and top blocked country for one category
+    ("geo" or "whitelist"), for that section's stat cards and graph.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) as cnt FROM geo_events WHERE category = ? AND action = 'blocked'",
+        (category,)
+    )
+    blocked = cursor.fetchone()["cnt"]
+
+    cursor.execute(
+        "SELECT COUNT(*) as cnt FROM geo_events WHERE category = ? AND action = 'allowed'",
+        (category,)
+    )
+    allowed = cursor.fetchone()["cnt"]
+
+    cursor.execute("""
+        SELECT country, COUNT(*) as cnt FROM geo_events
+        WHERE category = ? AND action = 'blocked' AND country != ''
+        GROUP BY country ORDER BY cnt DESC LIMIT 1
+    """, (category,))
+    row = cursor.fetchone()
+    top_blocked = dict(row) if row else {"country": "None", "cnt": 0}
+
+    conn.close()
+    return {"allowed": allowed, "blocked": blocked, "top_blocked_country": top_blocked}
 
 
 def get_geo_stats():

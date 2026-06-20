@@ -197,7 +197,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
                 ip_address, username,
                 geo.get("country", ""), geo.get("city", ""),
                 geo.get("isp", ""),
-                event_type, "allowed", "IP in allowed list"
+                event_type, "allowed", "IP in allowed list",
+                category="whitelist"
             )
             return True
         else:
@@ -215,7 +216,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
             log_geo_event(
                 ip_address, username, country, city,
                 geo.get("isp", ""),
-                event_type, "blocked", "IP not in allowed list"
+                event_type, "blocked", "IP not in allowed list",
+                category="whitelist"
             )
 
             # Block and alert. Whitelist-mode denials use their own alert type
@@ -244,7 +246,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
             log_geo_event(
                 ip_address, username, "Unknown", "",
                 geo.get("isp", ""),
-                event_type, "blocked", "Country could not be determined"
+                event_type, "blocked", "Country could not be determined",
+                category="geo"
             )
             handle_detection(
                 "geo_block", ip_address,
@@ -258,7 +261,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
             log_geo_event(
                 ip_address, username, country, geo.get("city", ""),
                 geo.get("isp", ""),
-                event_type, "allowed", f"Country '{country}' is allowed"
+                event_type, "allowed", f"Country '{country}' is allowed",
+                category="geo"
             )
             print(
                 f"[GEO] Allowed: {ip_address} from {country} "
@@ -279,7 +283,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
                 ip_address, username, country, city,
                 geo.get("isp", ""),
                 event_type, "blocked",
-                f"Country '{country}' not in allowed list"
+                f"Country '{country}' not in allowed list",
+                category="geo"
             )
 
             handle_detection(
