@@ -89,8 +89,6 @@ def build_report(day):
             return {"country": r["country"], "city": r["city"], "isp": ""}
         return {"country": "", "city": "", "isp": ""}
 
-    conn.close()
-
     alerts_by_ip = {}
     for a in alerts:
         alerts_by_ip.setdefault(a["source_ip"], []).append(a)
@@ -150,6 +148,8 @@ def build_report(day):
     alerts_by_type = {}
     for a in alerts:
         alerts_by_type[a["alert_type"]] = alerts_by_type.get(a["alert_type"], 0) + 1
+
+    conn.close()
 
     return {
         "report_date": day,
