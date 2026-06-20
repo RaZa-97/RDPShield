@@ -469,7 +469,9 @@ def get_recent_alerts(limit=50):
     cursor.execute("""
         SELECT a.*,
                (SELECT COUNT(*) FROM failed_logins f
-                WHERE f.source_ip = a.source_ip) AS attempts
+                WHERE f.source_ip = a.source_ip) AS attempts,
+               (SELECT gc.isp FROM geo_cache gc
+                WHERE gc.ip_address = a.source_ip) AS isp
         FROM alerts a
         ORDER BY a.created_at DESC LIMIT ?
     """, (limit,))
@@ -488,7 +490,14 @@ def get_blocked_ips():
     cursor.execute("""
         SELECT b.*,
                (SELECT COUNT(*) FROM failed_logins f
-                WHERE f.source_ip = b.ip_address) AS attempts
+                WHERE f.source_ip = b.ip_address) AS attempts,
+               (SELECT gc.country FROM geo_cache gc
+                WHERE gc.ip_address = b.ip_address) AS country,
+               (SELECT gc.isp FROM geo_cache gc
+                WHERE gc.ip_address = b.ip_address) AS isp,
+               (SELECT a.abuse_score FROM alerts a
+                WHERE a.source_ip = b.ip_address
+                ORDER BY a.id DESC LIMIT 1) AS abuse_score
         FROM blocked_ips b
         WHERE b.is_active = 1
         ORDER BY b.blocked_at DESC
@@ -507,7 +516,11 @@ def get_recent_failed_logins(limit=100):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT fl.*, gc.country AS geo_country, gc.city AS geo_city
+        SELECT fl.*, gc.country AS geo_country, gc.city AS geo_city,
+               gc.isp AS geo_isp,
+               (SELECT a.abuse_score FROM alerts a
+                WHERE a.source_ip = fl.source_ip
+                ORDER BY a.id DESC LIMIT 1) AS abuse_score
         FROM failed_logins fl
         LEFT JOIN geo_cache gc ON gc.ip_address = fl.source_ip
         ORDER BY fl.timestamp DESC LIMIT ?
@@ -878,12 +891,20 @@ def get_geo_events(limit=100, category=None):
     cursor = conn.cursor()
     if category:
         cursor.execute("""
-            SELECT * FROM geo_events WHERE category = ?
+            SELECT *,
+                   (SELECT a.abuse_score FROM alerts a
+                    WHERE a.source_ip = geo_events.source_ip
+                    ORDER BY a.id DESC LIMIT 1) AS abuse_score
+            FROM geo_events WHERE category = ?
             ORDER BY timestamp DESC LIMIT ?
         """, (category, limit))
     else:
         cursor.execute("""
-            SELECT * FROM geo_events ORDER BY timestamp DESC LIMIT ?
+            SELECT *,
+                   (SELECT a.abuse_score FROM alerts a
+                    WHERE a.source_ip = geo_events.source_ip
+                    ORDER BY a.id DESC LIMIT 1) AS abuse_score
+            FROM geo_events ORDER BY timestamp DESC LIMIT ?
         """, (limit,))
     rows = cursor.fetchall()
     conn.close()

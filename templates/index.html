@@ -104,6 +104,7 @@
                         <th>Attacker IP</th>
                         <th>Attempts</th>
                         <th>Location</th>
+                        <th>ISP</th>
                         <th>Abuse Score</th>
                         <th>Description</th>
                         <th>Blocked</th>
@@ -118,6 +119,7 @@
                         <td class="ip">{{ alert.source_ip }}</td>
                         <td><strong>{{ alert.attempts }}</strong></td>
                         <td>{{ alert.geo_city }}{% if alert.geo_country %}, {{ alert.geo_country }}{% endif %}</td>
+                        <td>{{ alert.isp or '—' }}</td>
                         <td>
                             {% if alert.abuse_score >= 75 %}
                                 <span class="score-high">{{ alert.abuse_score }}%</span>
@@ -158,6 +160,9 @@
                     <tr>
                         <th>IP Address</th>
                         <th>Attempts</th>
+                        <th>Location</th>
+                        <th>ISP</th>
+                        <th>Abuse Score</th>
                         <th>Reason</th>
                         <th>Blocked At</th>
                         <th>Action</th>
@@ -168,6 +173,14 @@
                     <tr>
                         <td class="ip">{{ ip.ip_address }}</td>
                         <td><strong>{{ ip.attempts }}</strong></td>
+                        <td>{{ ip.country or '—' }}</td>
+                        <td>{{ ip.isp or '—' }}</td>
+                        <td>
+                            {% if ip.abuse_score is none %}&mdash;
+                            {% elif ip.abuse_score >= 75 %}<span class="score-high">{{ ip.abuse_score }}%</span>
+                            {% elif ip.abuse_score >= 25 %}<span class="score-medium">{{ ip.abuse_score }}%</span>
+                            {% else %}<span class="score-low">{{ ip.abuse_score }}%</span>{% endif %}
+                        </td>
                         <td>{{ ip.reason }}</td>
                         <td>{{ ip.blocked_at }}</td>
                         <td>
@@ -197,6 +210,8 @@
                         <th>Time</th>
                         <th>Source IP</th>
                         <th>Country</th>
+                        <th>ISP</th>
+                        <th>Abuse Score</th>
                         <th>Username</th>
                         <th>Domain</th>
                         <th>Sub Status</th>
@@ -209,6 +224,13 @@
                         <td>{{ event.timestamp[:19] }}</td>
                         <td class="ip">{{ event.source_ip }}</td>
                         <td>{{ event.geo_country if event.geo_country else '&mdash;' | safe }}</td>
+                        <td>{{ event.geo_isp or '—' }}</td>
+                        <td>
+                            {% if event.abuse_score is none %}&mdash;
+                            {% elif event.abuse_score >= 75 %}<span class="score-high">{{ event.abuse_score }}%</span>
+                            {% elif event.abuse_score >= 25 %}<span class="score-medium">{{ event.abuse_score }}%</span>
+                            {% else %}<span class="score-low">{{ event.abuse_score }}%</span>{% endif %}
+                        </td>
                         <td>{{ event.username }}</td>
                         <td>{{ event.domain }}</td>
                         <td><code>{{ event.sub_status }}</code></td>
