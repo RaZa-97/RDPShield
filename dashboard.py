@@ -30,7 +30,6 @@ from database import (
     get_failed_login_trend,
     get_alert_type_breakdown,
     get_top_attacker_countries,
-    count_failed_logins,
     log_alert,
     # Geo functions
     get_geo_mode,
@@ -45,7 +44,7 @@ from database import (
     get_geo_stats,
 )
 from firewall import unblock_ip, block_ip
-from alerts import process_alert_enrichment, send_block_sms
+from alerts import process_alert_enrichment
 from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG
 from countries import COUNTRY_NAMES
 import yara_scheduler
@@ -72,7 +71,7 @@ def index():
     recent = get_recent_failed_logins(limit=50)
     trend = get_failed_login_trend(days=14)
     alert_breakdown_30d = get_alert_type_breakdown(days=30)
-    top_countries = get_top_attacker_countries(limit=6)
+    top_countries = get_top_attacker_countries(limit=20)
 
     return render_template(
         "index.html",
@@ -211,28 +210,19 @@ def block():
     """
     Manually block an IP address from the dashboard.
 
-    Runs the same response flow as an automatic block: geo-enrich the IP,
-    block it at the firewall, launch a post-block YARA disk scan, log an
-    alert (so it appears in Top Attacker Countries and Recent Alerts), and
-    send the rich post-block SMS once the scan finishes.
+    Geo-enriches the IP, blocks it at the firewall, launches a post-block
+    YARA disk scan, and logs an alert (so it appears in Top Attacker Countries
+    and Recent Alerts). Manual blocks deliberately do NOT send an SMS — only
+    automatic detections do.
     """
     ip = request.form.get("ip_address", "").strip()
     reason = request.form.get("reason", "").strip() or "Manually blocked from dashboard"
     if ip:
-        enrichment, geo = process_alert_enrichment(ip)
-        country = enrichment.get("geo_country", "") or (geo.get("country", "") if geo else "")
-        attempts = count_failed_logins(ip)
+        enrichment, _ = process_alert_enrichment(ip)
         success = block_ip(ip, reason=reason)
         if success:
-            ctx = {
-                "ip": ip,
-                "country": country,
-                "alert_type": "manual_block",
-                "attempts": attempts,
-            }
-            started = yara_scheduler.trigger_scan_async("post_block:" + ip, block_ctx=ctx)
-            if not started:
-                send_block_sms(ip, country, "manual_block", attempts, "deferred - scanner busy")
+            # No block_ctx and a non-"post_block" label => YARA runs but no SMS.
+            yara_scheduler.trigger_scan_async("manual_block:" + ip)
             log_alert(
                 alert_type="manual_block",
                 source_ip=ip,
@@ -241,7 +231,7 @@ def block():
                 geo_city=enrichment.get("geo_city", ""),
                 abuse_score=enrichment.get("abuse_score", 0),
                 blocked=1,
-                sms_sent=1,
+                sms_sent=0,
             )
             print(f"[DASHBOARD] Manually blocked {ip} ({reason})")
         else:

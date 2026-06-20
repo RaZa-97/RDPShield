@@ -560,15 +560,32 @@ def get_alert_type_breakdown(days=30):
     return breakdown
 
 
-def get_top_attacker_countries(limit=6):
-    """Get the countries with the most alerts, for the dashboard breakdown panel."""
+def get_top_attacker_countries(limit=20):
+    """
+    Countries of every currently-blocked IP, counted and sorted high to low,
+    for the dashboard's Top Attacker Countries panel.
+
+    Each active blocked IP contributes one to its country. The country is
+    resolved from the most recent alert that carried geo data, falling back
+    to the geo cache, so blocked IPs from any detection path are represented.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT geo_country as country, COUNT(*) as cnt
-        FROM alerts
-        WHERE geo_country IS NOT NULL AND geo_country != ''
-        GROUP BY geo_country
+        SELECT country, COUNT(*) as cnt FROM (
+            SELECT b.ip_address AS ip,
+                   COALESCE(
+                       NULLIF((SELECT a.geo_country FROM alerts a
+                               WHERE a.source_ip = b.ip_address AND a.geo_country <> ''
+                               ORDER BY a.id DESC LIMIT 1), ''),
+                       NULLIF((SELECT g.country FROM geo_cache g
+                               WHERE g.ip_address = b.ip_address), '')
+                   ) AS country
+            FROM blocked_ips b
+            WHERE b.is_active = 1
+        )
+        WHERE country IS NOT NULL AND country <> ''
+        GROUP BY country
         ORDER BY cnt DESC
         LIMIT ?
     """, (limit,))

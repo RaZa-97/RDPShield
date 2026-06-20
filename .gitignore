@@ -7,8 +7,9 @@ rdpshield.db-wal
 rdpshield.db-shm
 *.db
 
-# Logs
+# Logs and generated daily reports (contain attacker data)
 *.log
+logs/
 
 # Python
 __pycache__/
