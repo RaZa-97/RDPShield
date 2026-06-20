@@ -96,7 +96,8 @@ def _yara_summary(result):
 
 
 def _send_block_sms(block_ctx, result):
-    """Send the rich post-block SMS (IP, country, reason, attempts, YARA result)."""
+    """Send the rich post-block SMS (IP, location, reason, attempts, success
+    flag, YARA result, timestamp) once the disk scan has completed."""
     try:
         from alerts import send_block_sms
         return send_block_sms(
@@ -105,6 +106,9 @@ def _send_block_sms(block_ctx, result):
             block_ctx.get("alert_type", "manual_block"),
             block_ctx.get("attempts", 0),
             _yara_summary(result),
+            city=block_ctx.get("city", ""),
+            success_outside=block_ctx.get("success_outside", False),
+            timestamp=block_ctx.get("timestamp", ""),
         )
     except Exception as e:
         _set(last_error=f"block SMS failed: {e}")

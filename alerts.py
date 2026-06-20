@@ -154,8 +154,8 @@ REASON_LABELS = {
     "slow_attack": "Slow & low",
     "password_spray": "Password spray",
     "persistent_attack": "Persistent low-and-slow",
-    "geo_block": "Geo-blocked (country)",
-    "whitelist_block": "Whitelist (IP not allowed)",
+    "geo_block": "Blocked country",
+    "whitelist_block": "Non-whitelisted IP",
     "manual_block": "Manual block",
 }
 
@@ -191,22 +191,29 @@ def _post_sms(message_body):
         return False
 
 
-def send_block_sms(ip, country, alert_type, attempts, yara_summary):
+def send_block_sms(ip, country, alert_type, attempts, yara_summary,
+                   city="", success_outside=False, timestamp=""):
     """
     Send the post-block notification SMS. Fired once per block, AFTER the
     YARA disk scan completes so the findings can be included.
 
-    Body includes: IP, country, reason, attempt count, and YARA results.
+    Body includes: IP, location, reason, failed-attempt count, whether a
+    successful login came from the blocked zone, YARA results, and timestamp.
     """
     reason = REASON_LABELS.get(alert_type, alert_type)
-    body = (
-        f"RDPShield BLOCKED {ip}\n"
-        f"Country: {country or 'Unknown'}\n"
-        f"Reason: {reason}\n"
-        f"Failed attempts: {attempts}\n"
-        f"YARA disk scan: {yara_summary}"
-    )
-    return _post_sms(body)
+    location = f"{city}, {country}" if city and country else (country or city or "Unknown")
+    lines = [
+        f"RDPShield BLOCKED {ip}",
+        f"Location: {location}",
+        f"Reason: {reason}",
+        f"Failed attempts: {attempts}",
+    ]
+    if success_outside:
+        lines.append("Valid login from blocked zone: YES")
+    lines.append(f"YARA disk scan: {yara_summary}")
+    if timestamp:
+        lines.append(f"Time: {timestamp}")
+    return _post_sms("\n".join(lines))
 
 
 def send_sms_alert(alert_type, source_ip, description, geo_info=None):

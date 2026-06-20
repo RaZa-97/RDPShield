@@ -418,6 +418,31 @@ def count_failed_logins(source_ip):
     return result["cnt"]
 
 
+def count_failed_attempts(source_ip):
+    """
+    Total failed login attempts from an IP, for the post-block SMS.
+
+    Counts failed_logins PLUS geo/whitelist-blocked failed events: in
+    whitelist/geo mode a failed login is blocked by geo_check BEFORE it is
+    written to failed_logins, so those attempts only exist in geo_events.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) as cnt FROM failed_logins WHERE source_ip = ?",
+        (source_ip,)
+    )
+    total = cursor.fetchone()["cnt"]
+    cursor.execute(
+        "SELECT COUNT(*) as cnt FROM geo_events "
+        "WHERE source_ip = ? AND event_type = 'failed_login' AND action = 'blocked'",
+        (source_ip,)
+    )
+    total += cursor.fetchone()["cnt"]
+    conn.close()
+    return total
+
+
 def get_unique_usernames_for_ip(source_ip, since_seconds):
     """Get unique usernames targeted by an IP within a time window."""
     conn = get_connection()

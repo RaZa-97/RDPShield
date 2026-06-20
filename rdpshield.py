@@ -55,7 +55,7 @@ from database import (
     log_alert,
     get_failed_logins_for_ip,
     get_unique_usernames_for_ip,
-    count_failed_logins,
+    count_failed_attempts,
     is_ip_blocked,
     # Geo-blocking functions
     get_geo_mode,
@@ -226,7 +226,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
             handle_detection(
                 "whitelist_block", ip_address,
                 f"IP from {city}, {country} - not in allowed list "
-                f"(user: {username})"
+                f"(user: {username})",
+                extra={"success_outside": event_type == "successful_login"}
             )
             return False
 
@@ -252,7 +253,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
             handle_detection(
                 "geo_block", ip_address,
                 f"Country unknown - could not determine location "
-                f"(user: {username})"
+                f"(user: {username})",
+                extra={"success_outside": event_type == "successful_login"}
             )
             return False
 
@@ -290,7 +292,8 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
             handle_detection(
                 "geo_block", ip_address,
                 f"Login from {city}, {country} - country not allowed "
-                f"(user: {username})"
+                f"(user: {username})",
+                extra={"success_outside": event_type == "successful_login"}
             )
             return False
 
@@ -641,8 +644,19 @@ def should_alert(source_ip, alert_type):
     return True
 
 
-def handle_detection(alert_type, source_ip, detail_info):
-    """Central handler for all detection alerts including geo_block."""
+def handle_detection(alert_type, source_ip, detail_info, extra=None):
+    """
+    Central handler for all detection alerts (brute/spray/persistent and the
+    geo_block / whitelist_block access-control blocks).
+
+    Flow on a successful block is strictly ordered: Block -> Disk Scan -> SMS.
+    The SMS is fired from the YARA scan-completion handler so it always runs
+    AFTER the scan and can include its results.
+
+    `extra` may carry SMS context, e.g. {"success_outside": True} when the
+    triggering event was a successful login from a blocked zone/whitelist.
+    """
+    extra = extra or {}
     if not should_alert(source_ip, alert_type):
         return
 
@@ -656,20 +670,27 @@ def handle_detection(alert_type, source_ip, detail_info):
 
     enrichment, geo = process_alert_enrichment(source_ip)
     country = enrichment.get("geo_country", "") or (geo.get("country", "") if geo else "")
-    attempts = count_failed_logins(source_ip)
+    city = enrichment.get("geo_city", "") or (geo.get("city", "") if geo else "")
+    attempts = count_failed_attempts(source_ip)
+    success_outside = bool(extra.get("success_outside"))
+    event_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # STEP 1 - BLOCK
     blocked = block_ip(source_ip, reason=f"{alert_type}: {detail_info}")
 
-    # On a successful block: run a post-breach YARA disk scan, then send ONE
-    # rich SMS (IP, country, reason, attempt count, YARA results) from the scan
-    # completion. If the scanner is already busy, send the SMS now without
-    # fresh findings so every block still notifies.
+    # STEP 2 - DISK SCAN, then STEP 3 - SMS (sent by the scan-completion
+    # handler so the order is always Block -> Scan -> SMS). If the scanner is
+    # already busy, send the SMS now (results deferred) so no block goes silent.
     sms_sent = 0
     if blocked:
         ctx = {
             "ip": source_ip,
             "country": country,
+            "city": city,
             "alert_type": alert_type,
             "attempts": attempts,
+            "success_outside": success_outside,
+            "timestamp": event_time,
         }
         started = yara_scheduler.trigger_scan_async("post_block:" + source_ip,
                                                     block_ctx=ctx)
@@ -678,7 +699,8 @@ def handle_detection(alert_type, source_ip, detail_info):
         else:
             sms_sent = 1 if send_block_sms(
                 source_ip, country, alert_type, attempts,
-                "deferred - scanner busy"
+                "deferred - scanner busy", city=city,
+                success_outside=success_outside, timestamp=event_time
             ) else 0
 
     log_alert(
