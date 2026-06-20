@@ -130,7 +130,7 @@
             {% if geo_events %}
             <table>
                 <thead>
-                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Event</th><th>Action</th><th>Reason</th></tr>
+                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Event</th><th>Action</th><th>Reason</th><th>Manage</th></tr>
                 </thead>
                 <tbody>
                     {% for e in geo_events %}
@@ -147,6 +147,17 @@
                             {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}
                         </td>
                         <td class="description">{{ e.reason }}</td>
+                        <td>
+                            {% if e.source_ip in active_blocked_ips %}
+                            <form method="POST" action="/unblock/{{ e.source_ip }}" class="confirm-form"
+                                  data-confirm-message="Unblock {{ e.source_ip }}? It will be able to connect again."
+                                  data-confirm-title="Unblock IP address" data-confirm-ok="Unblock"
+                                  style="display:inline;">
+                                <input type="hidden" name="next" value="/geo">
+                                <button type="submit" class="btn-unblock">Unblock</button>
+                            </form>
+                            {% else %}&mdash;{% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -247,7 +258,7 @@
             {% if whitelist_events %}
             <table>
                 <thead>
-                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Event</th><th>Action</th><th>Reason</th></tr>
+                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Event</th><th>Action</th><th>Reason</th><th>Manage</th></tr>
                 </thead>
                 <tbody>
                     {% for e in whitelist_events %}
@@ -264,6 +275,17 @@
                             {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}
                         </td>
                         <td class="description">{{ e.reason }}</td>
+                        <td>
+                            {% if e.source_ip in active_blocked_ips %}
+                            <form method="POST" action="/unblock/{{ e.source_ip }}" class="confirm-form"
+                                  data-confirm-message="Unblock {{ e.source_ip }}? It will be able to connect again."
+                                  data-confirm-title="Unblock IP address" data-confirm-ok="Unblock"
+                                  style="display:inline;">
+                                <input type="hidden" name="next" value="/geo">
+                                <button type="submit" class="btn-unblock">Unblock</button>
+                            </form>
+                            {% else %}&mdash;{% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

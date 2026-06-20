@@ -105,6 +105,7 @@ def geo_settings():
     whitelist_events = get_geo_events(limit=50, category="whitelist")
     geo_cat_stats = get_geo_category_stats("geo")
     whitelist_cat_stats = get_geo_category_stats("whitelist")
+    active_blocked_ips = [b["ip_address"] for b in get_blocked_ips()]
 
     return render_template(
         "geo.html",
@@ -115,6 +116,7 @@ def geo_settings():
         whitelist_events=whitelist_events,
         geo_cat_stats=geo_cat_stats,
         whitelist_cat_stats=whitelist_cat_stats,
+        active_blocked_ips=active_blocked_ips,
         country_suggestions=COUNTRY_NAMES,
     )
 
@@ -205,11 +207,12 @@ def api_geo_stats():
 
 @app.route("/unblock/<ip_address>", methods=["POST"])
 def unblock(ip_address):
-    """Manually unblock an IP address."""
+    """Manually unblock an IP address. Returns to the page it was triggered
+    from (the dashboard or the Advanced Security event logs)."""
     success = unblock_ip(ip_address)
     if success:
         print(f"[DASHBOARD] Manually unblocked {ip_address}")
-    return redirect(url_for("index"))
+    return redirect(request.form.get("next") or url_for("index"))
 
 
 @app.route("/block", methods=["POST"])
