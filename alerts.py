@@ -154,7 +154,8 @@ REASON_LABELS = {
     "slow_attack": "Slow & low",
     "password_spray": "Password spray",
     "persistent_attack": "Persistent low-and-slow",
-    "geo_block": "Geo-blocked",
+    "geo_block": "Geo-blocked (country)",
+    "whitelist_block": "Whitelist (IP not allowed)",
     "manual_block": "Manual block",
 }
 

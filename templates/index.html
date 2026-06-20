@@ -319,6 +319,7 @@
                 persistent_attack: 'Persistent',
                 manual_block: 'Manual Block',
                 geo_block: 'Geo Block',
+                whitelist_block: 'Whitelist Block',
             };
             const palette = {
                 brute_force: colorVar('--critical'),
@@ -327,6 +328,7 @@
                 persistent_attack: '#0891b2',
                 manual_block: '#475569',
                 geo_block: colorVar('--brand'),
+                whitelist_block: '#0d9488',
             };
             const fallback = ['#16a34a', '#0891b2', '#9333ea'];
             const baseColors = alertTypeKeys.map((k, i) => palette[k] || fallback[i % fallback.length]);

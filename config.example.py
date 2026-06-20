@@ -65,7 +65,7 @@ NOTIFY_API_KEY = "YOUR_API_KEY"
 NOTIFY_SENDER_ID = "NotifyDEMO"   # Use "NotifyDEMO" for testing
 ALERT_TO_NUMBER = "94XXXXXXXXX"   # Your phone number (format: 9471XXXXXXX)
 
-SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "persistent_attack", "geo_block", "yara_critical"]
+SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "persistent_attack", "geo_block", "whitelist_block", "yara_critical"]
 
 # =============================================================================
 # DASHBOARD SETTINGS

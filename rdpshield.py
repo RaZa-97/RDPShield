@@ -207,9 +207,9 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
             city = geo.get("city", "Unknown")
 
             print(f"\n{'='*60}")
-            print(f"[GEO-BLOCK] Unwhitelisted IP: {ip_address}")
-            print(f"[GEO-BLOCK] Location: {city}, {country}")
-            print(f"[GEO-BLOCK] Mode: Whitelist only (public + private)")
+            print(f"[WHITELIST-BLOCK] Unwhitelisted IP: {ip_address}")
+            print(f"[WHITELIST-BLOCK] Location: {city}, {country}")
+            print(f"[WHITELIST-BLOCK] Mode: Whitelist only (public + private)")
             print(f"{'='*60}")
 
             log_geo_event(
@@ -218,9 +218,11 @@ def geo_check_ip(ip_address, username, event_type="failed_login"):
                 event_type, "blocked", "IP not in allowed list"
             )
 
-            # Block and alert
+            # Block and alert. Whitelist-mode denials use their own alert type
+            # (distinct from country-based geo_block) so they get their own
+            # log, chart entry, and label on the dashboard.
             handle_detection(
-                "geo_block", ip_address,
+                "whitelist_block", ip_address,
                 f"IP from {city}, {country} - not in allowed list "
                 f"(user: {username})"
             )
