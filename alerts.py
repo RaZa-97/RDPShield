@@ -148,49 +148,28 @@ def check_abuse_reputation(ip_address):
         return {}
 
 
-def send_sms_alert(alert_type, source_ip, description, geo_info=None):
-    """
-    Send an SMS alert via Notify.lk.
+# Human-readable reason labels for each block trigger, used in the block SMS.
+REASON_LABELS = {
+    "brute_force": "Brute force",
+    "slow_attack": "Slow & low",
+    "password_spray": "Password spray",
+    "persistent_attack": "Persistent low-and-slow",
+    "geo_block": "Geo-blocked",
+    "manual_block": "Manual block",
+}
 
-    Args:
-        alert_type: Type of alert ("brute_force", "password_spray", etc.)
-        source_ip: The attacker's IP
-        description: Human-readable description of the attack
-        geo_info: Optional geolocation dictionary
 
-    Returns:
-        True if SMS sent successfully, False otherwise
+def _post_sms(message_body):
     """
-    # Check if SMS is configured
+    Low-level Notify.lk sender. Posts the given message body and returns
+    True on success. Shared by all SMS helpers.
+    """
     if not all([NOTIFY_USER_ID, NOTIFY_API_KEY, ALERT_TO_NUMBER]):
-        print("[SMS] Notify.lk not configured. Skipping SMS alert.")
-        return False
-
-    # Check if this alert type should trigger SMS
-    if alert_type not in SMS_ALERT_TYPES:
-        print(f"[SMS] Alert type '{alert_type}' not in SMS list. Skipping.")
+        print("[SMS] Notify.lk not configured. Skipping SMS.")
         return False
 
     try:
-        # Build the message (max 621 chars for Notify.lk)
-        location = ""
-        if geo_info:
-            location = (
-                f"\nLocation: {geo_info.get('city', '?')}, "
-                f"{geo_info.get('country', '?')}"
-            )
-
-        message_body = (
-            f"RDPShield ALERT!\n"
-            f"Type: {alert_type.upper()}\n"
-            f"Attacker: {source_ip}{location}\n"
-            f"{description}"
-        )
-
-        # Trim to 621 chars max
-        message_body = message_body[:621]
-
-        # Send via Notify.lk API
+        message_body = message_body[:621]  # Notify.lk hard limit
         url = "https://app.notify.lk/api/v1/send"
         params = {
             "user_id": NOTIFY_USER_ID,
@@ -199,20 +178,68 @@ def send_sms_alert(alert_type, source_ip, description, geo_info=None):
             "to": ALERT_TO_NUMBER,
             "message": message_body,
         }
-
         response = requests.get(url, params=params, timeout=10)
         data = response.json()
-
         if data.get("status") == "success":
-            print(f"[SMS] Alert sent via Notify.lk!")
+            print("[SMS] Sent via Notify.lk!")
             return True
-        else:
-            print(f"[SMS] Notify.lk error: {data}")
-            return False
-
-    except Exception as e:
-        print(f"[SMS] Error sending alert: {e}")
+        print(f"[SMS] Notify.lk error: {data}")
         return False
+    except Exception as e:
+        print(f"[SMS] Error sending SMS: {e}")
+        return False
+
+
+def send_block_sms(ip, country, alert_type, attempts, yara_summary):
+    """
+    Send the post-block notification SMS. Fired once per block, AFTER the
+    YARA disk scan completes so the findings can be included.
+
+    Body includes: IP, country, reason, attempt count, and YARA results.
+    """
+    reason = REASON_LABELS.get(alert_type, alert_type)
+    body = (
+        f"RDPShield BLOCKED {ip}\n"
+        f"Country: {country or 'Unknown'}\n"
+        f"Reason: {reason}\n"
+        f"Failed attempts: {attempts}\n"
+        f"YARA disk scan: {yara_summary}"
+    )
+    return _post_sms(body)
+
+
+def send_sms_alert(alert_type, source_ip, description, geo_info=None):
+    """
+    Send a generic alert SMS via Notify.lk (used by the YARA-critical path).
+
+    Args:
+        alert_type: Type of alert ("yara_critical", "brute_force", etc.)
+        source_ip: The attacker's IP
+        description: Human-readable description of the attack
+        geo_info: Optional geolocation dictionary
+
+    Returns:
+        True if SMS sent successfully, False otherwise
+    """
+    # Check if this alert type should trigger SMS
+    if alert_type not in SMS_ALERT_TYPES:
+        print(f"[SMS] Alert type '{alert_type}' not in SMS list. Skipping.")
+        return False
+
+    location = ""
+    if geo_info:
+        location = (
+            f"\nLocation: {geo_info.get('city', '?')}, "
+            f"{geo_info.get('country', '?')}"
+        )
+
+    message_body = (
+        f"RDPShield ALERT!\n"
+        f"Type: {alert_type.upper()}\n"
+        f"Attacker: {source_ip}{location}\n"
+        f"{description}"
+    )
+    return _post_sms(message_body)
 
 
 def process_alert_enrichment(source_ip):

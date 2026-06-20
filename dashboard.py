@@ -30,6 +30,8 @@ from database import (
     get_failed_login_trend,
     get_alert_type_breakdown,
     get_top_attacker_countries,
+    count_failed_logins,
+    log_alert,
     # Geo functions
     get_geo_mode,
     set_geo_mode,
@@ -43,8 +45,10 @@ from database import (
     get_geo_stats,
 )
 from firewall import unblock_ip, block_ip
+from alerts import process_alert_enrichment, send_block_sms
 from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG
 from countries import COUNTRY_NAMES
+import yara_scheduler
 
 app = Flask(__name__)
 from yara_routes import yara_bp
@@ -206,13 +210,39 @@ def unblock(ip_address):
 def block():
     """
     Manually block an IP address from the dashboard.
-    The IP comes from a form field; an optional reason can be supplied.
+
+    Runs the same response flow as an automatic block: geo-enrich the IP,
+    block it at the firewall, launch a post-block YARA disk scan, log an
+    alert (so it appears in Top Attacker Countries and Recent Alerts), and
+    send the rich post-block SMS once the scan finishes.
     """
     ip = request.form.get("ip_address", "").strip()
     reason = request.form.get("reason", "").strip() or "Manually blocked from dashboard"
     if ip:
+        enrichment, geo = process_alert_enrichment(ip)
+        country = enrichment.get("geo_country", "") or (geo.get("country", "") if geo else "")
+        attempts = count_failed_logins(ip)
         success = block_ip(ip, reason=reason)
         if success:
+            ctx = {
+                "ip": ip,
+                "country": country,
+                "alert_type": "manual_block",
+                "attempts": attempts,
+            }
+            started = yara_scheduler.trigger_scan_async("post_block:" + ip, block_ctx=ctx)
+            if not started:
+                send_block_sms(ip, country, "manual_block", attempts, "deferred - scanner busy")
+            log_alert(
+                alert_type="manual_block",
+                source_ip=ip,
+                description=reason,
+                geo_country=enrichment.get("geo_country", ""),
+                geo_city=enrichment.get("geo_city", ""),
+                abuse_score=enrichment.get("abuse_score", 0),
+                blocked=1,
+                sms_sent=1,
+            )
             print(f"[DASHBOARD] Manually blocked {ip} ({reason})")
         else:
             print(f"[DASHBOARD] Could not block {ip} (whitelisted, already blocked, or disabled)")

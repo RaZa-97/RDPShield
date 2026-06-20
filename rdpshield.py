@@ -55,6 +55,7 @@ from database import (
     log_alert,
     get_failed_logins_for_ip,
     get_unique_usernames_for_ip,
+    count_failed_logins,
     is_ip_blocked,
     # Geo-blocking functions
     get_geo_mode,
@@ -68,7 +69,7 @@ from firewall import block_ip
 import yara_scheduler
 from alerts import (
     process_alert_enrichment,
-    send_sms_alert,
+    send_block_sms,
     lookup_geolocation,
 )
 
@@ -501,7 +502,7 @@ def process_failed_login(event):
     if is_persistent:
         handle_detection(
             "persistent_attack", ip,
-            f"{total} failed logins in {PERSISTENT_TIME_WINDOW // 60} min "
+            f"{total} failed logins from this IP over time "
             f"(low-and-slow pattern, last user: {username})"
         )
         return
@@ -647,14 +648,31 @@ def handle_detection(alert_type, source_ip, detail_info):
     print(f"{'='*60}")
 
     enrichment, geo = process_alert_enrichment(source_ip)
+    country = enrichment.get("geo_country", "") or (geo.get("country", "") if geo else "")
+    attempts = count_failed_logins(source_ip)
     blocked = block_ip(source_ip, reason=f"{alert_type}: {detail_info}")
-    # v3.0: launch a post-breach YARA scan in the background (daemon thread).
-    # SMS on CRITICAL findings is handled inside yara_scheduler, not here.
+
+    # On a successful block: run a post-breach YARA disk scan, then send ONE
+    # rich SMS (IP, country, reason, attempt count, YARA results) from the scan
+    # completion. If the scanner is already busy, send the SMS now without
+    # fresh findings so every block still notifies.
+    sms_sent = 0
     if blocked:
-        yara_scheduler.trigger_scan_async("post_block:" + source_ip)
-    sms_sent = send_sms_alert(
-        alert_type, source_ip, detail_info, geo_info=geo
-    )
+        ctx = {
+            "ip": source_ip,
+            "country": country,
+            "alert_type": alert_type,
+            "attempts": attempts,
+        }
+        started = yara_scheduler.trigger_scan_async("post_block:" + source_ip,
+                                                    block_ctx=ctx)
+        if started:
+            sms_sent = 1  # the scan-completion handler will send the SMS
+        else:
+            sms_sent = 1 if send_block_sms(
+                source_ip, country, alert_type, attempts,
+                "deferred - scanner busy"
+            ) else 0
 
     log_alert(
         alert_type=alert_type,
@@ -666,7 +684,7 @@ def handle_detection(alert_type, source_ip, detail_info):
         geo_city=enrichment.get("geo_city", ""),
         abuse_score=enrichment.get("abuse_score", 0),
         blocked=1 if blocked else 0,
-        sms_sent=1 if sms_sent else 0,
+        sms_sent=sms_sent,
     )
 
 

@@ -27,8 +27,9 @@ SPRAY_TIME_WINDOW = 300  # seconds (5 minutes)
 # --- Persistent / Low-and-Slow Attack ---
 # Catches attackers that pace attempts to stay under the rate thresholds.
 # Flags an IP that accumulates X total failures within a wide window.
-PERSISTENT_MAX_FAILURES = 12
-PERSISTENT_TIME_WINDOW = 3600  # seconds (1 hour)
+# Example: 5 failed logins from one IP within 24 hours, regardless of pacing.
+PERSISTENT_MAX_FAILURES = 5
+PERSISTENT_TIME_WINDOW = 86400  # seconds (24 hours)
 
 # =============================================================================
 # AUTO-BLOCK SETTINGS

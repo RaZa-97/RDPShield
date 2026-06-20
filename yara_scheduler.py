@@ -84,7 +84,34 @@ def _maybe_send_sms(triggered_by, result):
         return False
 
 
-def _run(triggered_by, scan_memory):
+def _yara_summary(result):
+    """One-line YARA result summary for the post-block SMS."""
+    if result.get("error"):
+        return f"error ({str(result['error'])[:40]})"
+    total = result.get("total", 0)
+    if total == 0:
+        return "clean (0 findings)"
+    return (f"{total} finding(s), {result.get('critical_count', 0)} critical; "
+            f"worst {result.get('max_severity') or '?'}")
+
+
+def _send_block_sms(block_ctx, result):
+    """Send the rich post-block SMS (IP, country, reason, attempts, YARA result)."""
+    try:
+        from alerts import send_block_sms
+        return send_block_sms(
+            block_ctx.get("ip", "?"),
+            block_ctx.get("country", ""),
+            block_ctx.get("alert_type", "manual_block"),
+            block_ctx.get("attempts", 0),
+            _yara_summary(result),
+        )
+    except Exception as e:
+        _set(last_error=f"block SMS failed: {e}")
+        return False
+
+
+def _run(triggered_by, scan_memory, block_ctx=None):
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
     _set(state="Scanning", triggered_by=triggered_by, last_error=None)
     print(f"[YARA] scan starting (triggered_by={triggered_by})", flush=True)
@@ -103,12 +130,17 @@ def _run(triggered_by, scan_memory):
     scan_id = None
     try:
         scan_id = database.log_yara_scan(triggered_by, result,
-                                         started_at, completed_at)
+                                         started_at, completed_at  )
     except Exception as e:
         _set(last_error=f"DB log failed: {e}")
         print(f"[YARA] DB log failed: {e}", flush=True)
 
-    sms_sent = _maybe_send_sms(triggered_by, result)
+    # When this scan was triggered by a block, send ONE rich SMS that includes
+    # the scan results. Otherwise fall back to the critical-only memory policy.
+    if block_ctx:
+        sms_sent = _send_block_sms(block_ctx, result)
+    else:
+        sms_sent = _maybe_send_sms(triggered_by, result)
 
     _set(
         state="Idle",
@@ -127,12 +159,15 @@ def _run(triggered_by, scan_memory):
           f"{' [SMS SENT]' if sms_sent else ''}", flush=True)
 
 
-def trigger_scan_async(triggered_by="manual", scan_memory=None):
+def trigger_scan_async(triggered_by="manual", scan_memory=None, block_ctx=None):
     """Start a scan in a daemon thread.
 
     triggered_by : label stored with the scan ("manual", "manual_memory",
                    "post_block:<ip>").
     scan_memory  : None -> use config flag; True/False -> explicit override.
+    block_ctx    : optional dict {ip, country, alert_type, attempts}. When
+                   present, a rich post-block SMS (with YARA results) is sent
+                   when the scan finishes.
 
     Returns True if a scan was started, False if one is already running.
     """
@@ -142,7 +177,7 @@ def trigger_scan_async(triggered_by="manual", scan_memory=None):
         _status["state"] = "Scanning"
         _status["triggered_by"] = triggered_by
 
-    t = threading.Thread(target=_run, args=(triggered_by, scan_memory),
+    t = threading.Thread(target=_run, args=(triggered_by, scan_memory, block_ctx),
                          name="yara-scan", daemon=True)
     t.start()
     return True

@@ -393,6 +393,19 @@ def get_failed_logins_for_ip(source_ip, since_seconds):
     return rows
 
 
+def count_failed_logins(source_ip):
+    """Total number of failed logins ever recorded from an IP (for SMS/alerts)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) as cnt FROM failed_logins WHERE source_ip = ?",
+        (source_ip,)
+    )
+    result = cursor.fetchone()
+    conn.close()
+    return result["cnt"]
+
+
 def get_unique_usernames_for_ip(source_ip, since_seconds):
     """Get unique usernames targeted by an IP within a time window."""
     conn = get_connection()
