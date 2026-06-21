@@ -492,6 +492,8 @@ code {
 .btn-sm.btn-q   { background: rgba(234, 88, 12, 0.12);  color: #ea580c; }
 .btn-sm.btn-del { background: rgba(220, 38, 38, 0.12);  color: #dc2626; }
 .btn-sm:disabled { opacity: 0.5; cursor: default; }
+.copy-hash { cursor: pointer; }
+.copy-hash:hover { text-decoration: underline; }
 
 /* YARA severity / type badges */
 .b-CRITICAL { background: rgba(220, 38, 38, 0.1); color: var(--critical); }

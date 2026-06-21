@@ -101,6 +101,23 @@ function toast(msg){
   setTimeout(()=>t.classList.remove('show'),3200);
 }
 
+// Copy a finding's full SHA-256 to the clipboard. Falls back to execCommand
+// for plain-HTTP (non-secure) contexts where navigator.clipboard is blocked.
+function copyHash(sha){
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(sha).then(()=>toast('Hash copied'), ()=>fallbackCopy(sha));
+  } else { fallbackCopy(sha); }
+}
+function fallbackCopy(text){
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    toast('Hash copied');
+  }catch(e){ toast('Copy failed'); }
+}
+
 let scanning=false;
 
 function setButtons(){
@@ -155,7 +172,7 @@ async function loadFindings(id){
     body.innerHTML=f.map(x=>{
       const sha = x.sha256 || '';
       const hashCell = sha
-        ? `<span class="mono" title="${esc(sha)}">${esc(sha.slice(0,12))}…</span>`
+        ? `<span class="mono copy-hash" title="Click to copy full hash" onclick="copyHash('${esc(sha)}')">${esc(sha.slice(0,12))}… &#128203;</span>`
         : '<span class="muted">—</span>';
       const vtCell = sha
         ? `<button class="btn-sm" onclick="vtHash('${esc(sha)}', this)">Check VT</button>`

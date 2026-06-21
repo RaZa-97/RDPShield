@@ -1,7 +1,71 @@
 # RDPShield — Project Progress & Reference
 
 > MSc Dissertation project. Windows blue-team tool for RDP brute-force detection with a Flask SOC-style dashboard.
-> Last updated: 2026-06-19
+> Last updated: 2026-06-21
+
+---
+
+## ⭐ CURRENT STATE (read this first)
+
+**Live deployment:** AWS EC2 Windows Server, public IP `16.170.232.91`, dashboard at `http://16.170.232.91:5000` (and `http://localhost:5000` inside RDP).
+**GitHub:** https://github.com/RaZa-97/RDPShield (branch `main`). The server is a git clone — deploy with `git pull`.
+**Attacker test box:** BlackArch Linux VM (attacks from a mobile hotspot so the admin/home-wifi IP is never blocked).
+
+### Deployment workflow (server)
+```cmd
+cd C:\Projects\RDPShield
+git pull
+:: clean restart so new code + DB migrations load (manual scans run in the dashboard process)
+schtasks /end /tn "RDPShield-Agent" & schtasks /end /tn "RDPShield-Dashboard"
+taskkill /F /IM python.exe
+schtasks /run /tn "RDPShield-Agent" & schtasks /run /tn "RDPShield-Dashboard"
+```
+Browser hard-refresh (Ctrl+F5) after template/JS changes.
+
+### config.py is GITIGNORED — new settings must be hand-added on the server
+After a pull that introduces a new config setting, add it to the server's `config.py` by hand (the code imports it; missing → dashboard won't start with `ImportError`). Settings currently required beyond the original file:
+```python
+PERSISTENT_MAX_FAILURES = 5
+PERSISTENT_TIME_WINDOW  = 86400          # 24h, any pacing
+SMS_ALERT_TYPES = ["brute_force","password_spray","slow_attack","persistent_attack","geo_block","whitelist_block","yara_critical"]
+YARA_QUARANTINE_DIR = r"C:\RDPShield_Quarantine"
+VIRUSTOTAL_API_KEY  = "<your VT key>"    # gitignored; never pushed
+VIRUSTOTAL_URL      = "https://www.virustotal.com/api/v3"
+```
+Live secrets in config.py: AbuseIPDB key, Notify.lk creds + phone, VirusTotal key. **All exposed in chat — rotate when convenient.**
+
+### Scheduled tasks (run as SYSTEM, survive RDP disconnect + reboot)
+| Task | Runs | Schedule |
+|---|---|---|
+| `RDPShield-Agent` | `run_agent.bat` → `rdpshield.py` | onstart |
+| `RDPShield-Dashboard` | `run_dashboard.bat` → `dashboard.py` | onstart |
+| `RDPShield-DailyReport` | `run_report.bat` → `daily_report.py` | daily 23:55 |
+
+The three `run_*.bat` files are **gitignored** (server-specific) — recreate on a fresh server. Each is:
+```
+cd /d C:\Projects\RDPShield
+set PYTHONUTF8=1
+C:\Users\Administrator\AppData\Local\Programs\Python\Python311-32\python.exe <script>.py >> <log>.log 2>&1
+```
+Python on server: **3.11 32-bit**. UTF-8 mode (`set PYTHONUTF8=1`) is required or non-ASCII attacker data crashes under SYSTEM.
+
+### Feature set as of 2026-06-21
+- **Detection:** brute force (5/60s), slow-and-low (10/600s, shadowed by persistent), password spray (4 users/300s), **persistent/low-and-slow (5 failures/24h any pacing)**.
+- **Geo access control (Advanced Security page, 2 sections):** Geolocation Settings (allow-anywhere / country-list → `geo_block`) and Whitelist Settings (IP-whitelist-only → `whitelist_block`). Each has its own mode control, lockout guard, allow-list, stats, Allowed-vs-Blocked chart, and category-tagged event log with **Unblock** buttons.
+- **Response (strict order Block → YARA disk scan → SMS):** firewall block; post-block YARA disk scan; one rich SMS sent from the scan-completion handler containing IP, location (city/country), reason, failed-attempt count, "Valid login from blocked zone: YES" flag, YARA result, timestamp. Manual blocks run YARA + log an alert but send **no SMS** (auto-blocks only).
+- **Enrichment:** ip-api geo (+ISP), AbuseIPDB score, **VirusTotal** (IP reputation on dashboard rows; file-hash lookup on YARA findings).
+- **YARA Controller:** disk + memory scans; each disk finding has a **SHA-256** (click-to-copy); **Check VT** button; per-finding **Whitelist / Quarantine / Delete** actions. Whitelisted hashes are skipped by future scans (`yara_whitelist` table).
+- **Dashboard:** live **in-place AJAX refresh** (no full-page reload — stat cards + 3 tables update via JSON, paused while a modal is open or a field is focused). Tables show attempts, country, ISP, abuse score, VT. Alert-breakdown chart labels: `geo_block`→"Geo Blocked", `whitelist_block`→"Non-Whitelisted IPs".
+- **Daily ML-ready report:** `daily_report.py` → `logs/rdpshield_report_<date>.json` (per-attacker aggregation; scheduled 23:55).
+- **Tooling:** `verify_setup.py` (config/DB health check, masks secrets), `backfill_geo.py` (one-time geo backfill), `TESTING.md` (attack test plan).
+
+### Helper scripts / files
+`virustotal.py`, `daily_report.py`, `verify_setup.py`, `backfill_geo.py`, `countries.py`, `TESTING.md`.
+Gitignored (server/local only): `config.py`, `rdpshield.db`, `*.log`, `logs/`, `run_*.bat`, `.claude/`.
+
+### Known design notes
+- **Detection, not prevention:** RDPShield reads the event log *after* a login, so an attacker with valid creds briefly connects before the firewall block kicks in (~20–30s). *Not yet built:* immediate RDP session-kill + proactive whitelist firewall (only-allow-3389-from-whitelist) — the "#1 prevention" enhancement, still pending.
+- VT/AbuseIPDB scores are 0 for the user's own SL test IPs (not reported) — correct; real botnets score high.
 
 ---
 
