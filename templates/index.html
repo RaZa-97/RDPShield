@@ -106,6 +106,7 @@
                         <th>Location</th>
                         <th>ISP</th>
                         <th>Abuse Score</th>
+                        <th>VirusTotal</th>
                         <th>Description</th>
                         <th>Blocked</th>
                         <th>SMS</th>
@@ -129,6 +130,7 @@
                                 <span class="score-low">{{ alert.abuse_score }}%</span>
                             {% endif %}
                         </td>
+                        <td class="vt-cell"><button class="btn-sm" onclick="vtIp('{{ alert.source_ip }}', this)">VT</button></td>
                         <td class="description">{{ alert.description }}</td>
                         <td>{% if alert.blocked %}&#9989;{% else %}&#10060;{% endif %}</td>
                         <td>{% if alert.sms_sent %}&#9989;{% else %}&#10060;{% endif %}</td>
@@ -165,6 +167,7 @@
                         <th>Location</th>
                         <th>ISP</th>
                         <th>Abuse Score</th>
+                        <th>VirusTotal</th>
                         <th>Reason</th>
                         <th>Blocked At</th>
                         <th>Action</th>
@@ -183,6 +186,7 @@
                             {% elif ip.abuse_score >= 25 %}<span class="score-medium">{{ ip.abuse_score }}%</span>
                             {% else %}<span class="score-low">{{ ip.abuse_score }}%</span>{% endif %}
                         </td>
+                        <td class="vt-cell"><button class="btn-sm" onclick="vtIp('{{ ip.ip_address }}', this)">VT</button></td>
                         <td>{{ ip.reason }}</td>
                         <td>{{ ip.blocked_at }}</td>
                         <td>
@@ -411,6 +415,29 @@
         }
         function setNum(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
 
+        // VirusTotal IP reputation: cached client-side so a looked-up result
+        // survives the 10s table refresh (and doesn't burn extra VT quota).
+        const vtCache = {};
+        function vtCellHtml(ip) {
+            const d = vtCache[ip];
+            if (!d) return '<button class="btn-sm" onclick="vtIp(\'' + esc(ip) + '\', this)">VT</button>';
+            if (d.found) {
+                const cls = d.malicious > 0 ? 'score-high' : 'score-low';
+                return '<a href="' + d.permalink + '" target="_blank" class="' + cls + '">'
+                    + d.malicious + '/' + d.total + '</a>';
+            }
+            return '<span class="muted" title="' + esc(d.reason || '') + '">n/a</span>';
+        }
+        async function vtIp(ip, btn) {
+            btn.disabled = true; btn.textContent = '…';
+            try {
+                const r = await fetch('/yara/vt/ip/' + ip); const d = await r.json();
+                vtCache[ip] = d;
+                const cell = btn.parentElement;
+                if (cell) cell.innerHTML = vtCellHtml(ip);
+            } catch (e) { btn.disabled = false; btn.textContent = 'VT'; }
+        }
+
         function buildAlerts(rows) {
             if (!rows.length) return '<p class="empty">No alerts yet. Waiting for attack detection...</p>';
             let h = '<table><thead><tr><th>Time</th><th>Type</th><th>Attacker IP</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>Description</th><th>Blocked</th><th>SMS</th></tr></thead><tbody>';
@@ -424,6 +451,7 @@
                     + '<td>' + loc + '</td>'
                     + '<td>' + esc(a.isp || '—') + '</td>'
                     + '<td>' + abuseCell(a.abuse_score) + '</td>'
+                    + '<td class="vt-cell">' + vtCellHtml(a.source_ip) + '</td>'
                     + '<td class="description">' + esc(a.description || '') + '</td>'
                     + '<td>' + (a.blocked ? '&#9989;' : '&#10060;') + '</td>'
                     + '<td>' + (a.sms_sent ? '&#9989;' : '&#10060;') + '</td></tr>';
@@ -439,6 +467,7 @@
                     + '<td>' + esc(ip.country || '—') + '</td>'
                     + '<td>' + esc(ip.isp || '—') + '</td>'
                     + '<td>' + abuseCell(ip.abuse_score) + '</td>'
+                    + '<td class="vt-cell">' + vtCellHtml(ip.ip_address) + '</td>'
                     + '<td>' + esc(ip.reason || '') + '</td>'
                     + '<td>' + esc(ip.blocked_at || '') + '</td>'
                     + '<td><form method="POST" action="/unblock/' + encodeURIComponent(ip.ip_address) + '" class="confirm-form"'
