@@ -16,6 +16,7 @@ Design notes:
 
 import os
 import time
+import hashlib
 
 try:
     import yara
@@ -96,7 +97,19 @@ def _matched_string_ids(match):
     return sorted(ids)
 
 
-def _finding_from_match(match, match_type, location):
+def _sha256(filepath):
+    """SHA-256 of a file, or '' if it can't be read."""
+    try:
+        h = hashlib.sha256()
+        with open(filepath, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except (OSError, PermissionError):
+        return ""
+
+
+def _finding_from_match(match, match_type, location, sha256=""):
     sev = match.meta.get("severity")
     return {
         "rule_name": match.rule,
@@ -106,6 +119,7 @@ def _finding_from_match(match, match_type, location):
         "description": match.meta.get("description", ""),
         "match_type": match_type,          # "disk" or "memory"
         "location": location,              # file path or "PID 1234 (name.exe)"
+        "sha256": sha256,                  # file hash (disk findings only)
         "matched_strings": ",".join(_matched_string_ids(match)),
         "detected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -113,9 +127,14 @@ def _finding_from_match(match, match_type, location):
 
 # --- disk scan --------------------------------------------------------------
 
-def scan_disk(rules, paths=None, deadline=None):
-    """Walk each path and match files under the size cap. Returns list of findings."""
+def scan_disk(rules, paths=None, deadline=None, whitelist=None):
+    """Walk each path and match files under the size cap. Returns list of findings.
+
+    `whitelist` is a set of SHA-256 hashes that have been cleared by the operator;
+    files whose hash is in it are skipped (no finding emitted).
+    """
     paths = paths if paths is not None else SCAN_PATHS
+    whitelist = whitelist or set()
     findings = []
 
     for base in paths:
@@ -136,8 +155,14 @@ def scan_disk(rules, paths=None, deadline=None):
                     continue
                 except yara.Error:
                     continue
+                if not matches:
+                    continue
+                # Only hash files that actually matched a rule (cheap that way).
+                digest = _sha256(fp)
+                if digest and digest in whitelist:
+                    continue  # operator-cleared file; ignore
                 for m in matches:
-                    findings.append(_finding_from_match(m, "disk", fp))
+                    findings.append(_finding_from_match(m, "disk", fp, sha256=digest))
     return findings
 
 
@@ -215,10 +240,18 @@ def run_scan(scan_memory_flag=True, scan_disk_flag=True, paths=None):
         result["duration"] = round(time.monotonic() - start, 2)
         return result
 
+    # Operator-cleared file hashes are skipped during disk scanning.
+    try:
+        import database
+        whitelist = set(database.get_yara_whitelist_hashes())
+    except Exception:
+        whitelist = set()
+
     findings = []
     try:
         if scan_disk_flag:
-            findings += scan_disk(rules, paths=paths, deadline=deadline)
+            findings += scan_disk(rules, paths=paths, deadline=deadline,
+                                  whitelist=whitelist)
         if scan_memory_flag:
             findings += scan_memory(rules, deadline=deadline)
     except Exception as e:               # defensive: never let a scan crash the agent

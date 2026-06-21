@@ -222,19 +222,30 @@ def create_yara_tables():
             FOREIGN KEY (scan_id) REFERENCES yara_scans(id)
         )""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yara_findings_scan ON yara_findings(scan_id)")
+    # Operator-cleared file hashes; future disk scans skip these.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS yara_whitelist (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            sha256    TEXT UNIQUE,
+            path      TEXT,
+            rule_name TEXT,
+            added_at  TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
     _migrate_yara_findings_columns(c)
     conn.commit(); conn.close()
 
 
 def _migrate_yara_findings_columns(c):
-    """Add confidence / suppressed columns to yara_findings if not present.
-    Safe to run every startup: only adds a column when it's missing."""
+    """Add confidence / suppressed / sha256 columns to yara_findings if not
+    present. Safe to run every startup: only adds a column when it's missing."""
     c.execute("PRAGMA table_info(yara_findings)")
     cols = {row[1] for row in c.fetchall()}   # row[1] = column name
     if "confidence" not in cols:
         c.execute("ALTER TABLE yara_findings ADD COLUMN confidence REAL")
     if "suppressed" not in cols:
         c.execute("ALTER TABLE yara_findings ADD COLUMN suppressed INTEGER DEFAULT 0")
+    if "sha256" not in cols:
+        c.execute("ALTER TABLE yara_findings ADD COLUMN sha256 TEXT DEFAULT ''")
 
 
 def log_yara_scan(triggered_by, result, started_at, completed_at):
@@ -257,12 +268,13 @@ def log_yara_scan(triggered_by, result, started_at, completed_at):
             INSERT INTO yara_findings
                 (scan_id, rule_name, severity, category, description,
                  match_type, location, matched_strings, detected_at,
-                 confidence, suppressed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 confidence, suppressed, sha256)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (scan_id, f.get("rule_name"), f.get("severity"), f.get("category"),
               f.get("description"), f.get("match_type"), f.get("location"),
               f.get("matched_strings"), f.get("detected_at"),
-              f.get("confidence"), 1 if f.get("suppressed") else 0))
+              f.get("confidence"), 1 if f.get("suppressed") else 0,
+              f.get("sha256", "")))
     conn.commit(); conn.close()
     return scan_id
 
@@ -282,7 +294,7 @@ def get_yara_findings(scan_id):
     c.execute("""
         SELECT id, scan_id, rule_name, severity, category, description,
                match_type, location, matched_strings, detected_at,
-               confidence, suppressed
+               confidence, suppressed, sha256
         FROM yara_findings WHERE scan_id = ?
         ORDER BY suppressed ASC,
                  CASE severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3
@@ -290,6 +302,49 @@ def get_yara_findings(scan_id):
                  id ASC""", (scan_id,))
     rows = [dict(r) for r in c.fetchall()]; conn.close()
     return rows
+
+
+def get_yara_finding(finding_id):
+    """One YARA finding by id (for delete/quarantine/whitelist actions)."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        SELECT id, scan_id, rule_name, severity, match_type, location, sha256
+        FROM yara_findings WHERE id = ?""", (finding_id,))
+    row = c.fetchone(); conn.close()
+    return dict(row) if row else None
+
+
+# --- YARA finding whitelist (operator-cleared file hashes) ---
+
+def add_yara_whitelist(sha256, path="", rule_name=""):
+    """Mark a file hash as cleared so future disk scans skip it."""
+    if not sha256:
+        return False
+    conn = get_connection(); c = conn.cursor()
+    try:
+        c.execute(
+            "INSERT INTO yara_whitelist (sha256, path, rule_name) VALUES (?, ?, ?)",
+            (sha256, path, rule_name))
+        conn.commit(); ok = True
+    except sqlite3.IntegrityError:
+        ok = False  # already whitelisted
+    conn.close()
+    return ok
+
+
+def get_yara_whitelist_hashes():
+    """Set of whitelisted SHA-256 hashes (used by the scanner to skip files)."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT sha256 FROM yara_whitelist WHERE sha256 != ''")
+    rows = [r["sha256"] for r in c.fetchall()]; conn.close()
+    return rows
+
+
+def remove_yara_finding(finding_id):
+    """Delete a finding row (after the file is deleted/quarantined)."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("DELETE FROM yara_findings WHERE id = ?", (finding_id,))
+    conn.commit(); conn.close()
 
 
 def get_suppressed_findings(limit=50):

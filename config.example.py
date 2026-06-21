@@ -126,3 +126,14 @@ YARA_MEMORY_EXCLUDE_NAMES = [
     "msedge.exe", "chrome.exe", "firefox.exe", "iexplore.exe",
     "opera.exe", "brave.exe", "msedgewebview2.exe",
 ]
+
+# Where quarantined files are moved to (created automatically).
+YARA_QUARANTINE_DIR = r"C:\RDPShield_Quarantine"
+
+# =============================================================================
+# VIRUSTOTAL (file-hash + IP reputation enrichment)
+# =============================================================================
+# Free API key from https://www.virustotal.com/  (Account -> API Key).
+# Free tier: 4 lookups/min, 500/day. Leave blank to disable VT lookups.
+VIRUSTOTAL_API_KEY = ""
+VIRUSTOTAL_URL = "https://www.virustotal.com/api/v3"

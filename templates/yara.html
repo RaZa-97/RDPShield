@@ -68,7 +68,7 @@
     <h2 id="findingsTitle">Findings</h2>
     <table>
       <thead>
-        <tr><th>Severity</th><th>Rule</th><th>Type</th><th>Location</th><th>Matched</th><th>Description</th></tr>
+        <tr><th>Severity</th><th>Rule</th><th>Type</th><th>Location</th><th>SHA-256</th><th>VirusTotal</th><th>Actions</th></tr>
       </thead>
       <tbody id="findingsBody"></tbody>
     </table>
@@ -77,6 +77,19 @@
 </div>
 
 <div id="toast" class="toast"></div>
+
+<div class="modal-overlay" id="confirmModalOverlay">
+  <div class="modal-box">
+    <h3 id="confirmModalTitle">Please confirm</h3>
+    <p id="confirmModalMessage"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+      <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/modal.js') }}"></script>
 
 <script>
 function sev(s){ s = s || 'none'; return '<span class="badge b-'+s+'">'+(s==='none'?'—':s)+'</span>'; }
@@ -133,22 +146,92 @@ async function loadFindings(id){
   const body=document.getElementById('findingsBody');
   document.getElementById('findingsTitle').textContent='Findings — Scan #'+id;
   panel.style.display='block';
-  body.innerHTML='<tr><td colspan="6" class="empty">Loading…</td></tr>';
+  body.innerHTML='<tr><td colspan="7" class="empty">Loading…</td></tr>';
   panel.scrollIntoView({behavior:'smooth',block:'nearest'});
   try{
     const r=await fetch('/yara/findings/'+id); const d=await r.json();
     const f=d.findings||[];
-    if(!f.length){ body.innerHTML='<tr><td colspan="6" class="empty">No findings — clean scan.</td></tr>'; return; }
-    body.innerHTML=f.map(x=>`
-      <tr>
+    if(!f.length){ body.innerHTML='<tr><td colspan="7" class="empty">No findings — clean scan.</td></tr>'; return; }
+    body.innerHTML=f.map(x=>{
+      const sha = x.sha256 || '';
+      const hashCell = sha
+        ? `<span class="mono" title="${esc(sha)}">${esc(sha.slice(0,12))}…</span>`
+        : '<span class="muted">—</span>';
+      const vtCell = sha
+        ? `<button class="btn-sm" onclick="vtHash('${esc(sha)}', this)">Check VT</button>`
+        : '<span class="muted">—</span>';
+      const actions = (x.match_type === 'disk')
+        ? `<button class="btn-sm btn-wl" onclick="findingAction(${x.id},'whitelist',this)">Whitelist</button>`
+          + `<button class="btn-sm btn-q" onclick="findingAction(${x.id},'quarantine',this)">Quarantine</button>`
+          + `<button class="btn-sm btn-del" onclick="findingAction(${x.id},'delete',this)">Delete</button>`
+        : '<span class="muted">memory</span>';
+      return `<tr id="finding-row-${x.id}">
         <td>${sev(x.severity)}</td>
         <td class="mono">${esc(x.rule_name)}</td>
         <td>${typeTag(x.match_type)}</td>
-        <td class="mono">${esc(x.location)}</td>
-        <td class="mono muted">${esc(x.matched_strings)}</td>
-        <td class="muted">${esc(x.description)}</td>
-      </tr>`).join('');
-  }catch(e){ body.innerHTML='<tr><td colspan="6" class="empty">Failed to load findings.</td></tr>'; }
+        <td class="mono" title="${esc(x.location)}">${esc(x.location)}</td>
+        <td>${hashCell}</td>
+        <td class="vt-cell">${vtCell}</td>
+        <td class="actions-cell">${actions}</td>
+      </tr>`;
+    }).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="7" class="empty">Failed to load findings.</td></tr>'; }
+}
+
+// --- VirusTotal hash lookup (on-demand) ---
+async function vtHash(sha, btn){
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try{
+    const r = await fetch('/yara/vt/hash/' + sha); const d = await r.json();
+    const cell = btn.parentElement;
+    if(d.found){
+      const cls = d.malicious > 0 ? 'score-high' : 'score-low';
+      cell.innerHTML = `<a href="${d.permalink}" target="_blank" class="${cls}">`
+        + `${d.malicious}/${d.total} malicious</a>`;
+    } else {
+      cell.innerHTML = `<span class="muted">${esc(d.reason || 'not found')}</span>`;
+    }
+  }catch(e){ btn.disabled = false; btn.textContent = 'Check VT'; toast('VirusTotal request failed.'); }
+}
+
+// --- delete / quarantine / whitelist a finding ---
+function findingAction(id, action, btn){
+  const verb = {delete:'delete', quarantine:'quarantine', whitelist:'whitelist'}[action];
+  const msg = {
+    delete:    'Permanently delete this file from disk?',
+    quarantine:'Move this file to the quarantine folder?',
+    whitelist: 'Whitelist this file hash? Future scans will ignore it.'
+  }[action];
+  const run = () => doFindingAction(id, action);
+  if(window.showConfirm){
+    showConfirm(msg, run, {
+      title: verb.charAt(0).toUpperCase() + verb.slice(1) + ' finding',
+      okText: verb.charAt(0).toUpperCase() + verb.slice(1),
+      danger: action !== 'whitelist',
+    });
+  } else if(confirm(msg)){ run(); }
+}
+async function doFindingAction(id, action){
+  try{
+    const r = await fetch('/yara/finding/action', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({finding_id:id, action:action})
+    });
+    const d = await r.json();
+    toast(d.message || (d.ok ? 'Done.' : 'Action failed.'));
+    if(d.ok){
+      const row = document.getElementById('finding-row-' + id);
+      if(row){
+        if(action === 'whitelist'){
+          row.style.opacity = '0.45';
+          const ac = row.querySelector('.actions-cell');
+          if(ac) ac.innerHTML = '<span class="muted">whitelisted</span>';
+        } else {
+          row.remove();  // deleted or quarantined
+        }
+      }
+    }
+  }catch(e){ toast('Request failed.'); }
 }
 
 async function startScan(kind){
