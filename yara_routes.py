@@ -92,14 +92,18 @@ def yara_vt_ip(ip):
 @yara_bp.route("/yara/finding/action", methods=["POST"])
 def yara_finding_action():
     """
-    Act on a single YARA finding.
-    JSON body: {"finding_id": <int>, "action": "delete"|"quarantine"|"whitelist"}
+    Act on a YARA finding. Updates a status instead of deleting the row, and
+    propagates to sibling findings of the same file so multiple rule matches on
+    one file all move together (and acting on an already-handled file is safe).
+
+    JSON body: {"finding_id": <int>,
+                "action": delete|quarantine|whitelist|ignore|restore}
     """
     data = request.get_json(silent=True) or {}
     finding_id = data.get("finding_id")
     action = (data.get("action") or "").lower()
 
-    if action not in ("delete", "quarantine", "whitelist"):
+    if action not in ("delete", "quarantine", "whitelist", "ignore", "restore"):
         return jsonify({"ok": False, "message": "Unknown action."}), 400
 
     finding = database.get_yara_finding(finding_id)
@@ -108,39 +112,71 @@ def yara_finding_action():
 
     path = finding.get("location") or ""
     sha256 = finding.get("sha256") or ""
-
-    # delete/quarantine only apply to disk findings (real files on disk).
-    if action in ("delete", "quarantine"):
-        if finding.get("match_type") != "disk" or not os.path.isfile(path):
-            return jsonify({"ok": False,
-                            "message": "File not found (already removed?) "
-                                       "or this is a memory finding."}), 400
+    is_disk = finding.get("match_type") == "disk"
 
     try:
-        if action == "delete":
-            os.remove(path)
-            database.remove_yara_finding(finding_id)
-            msg = f"Deleted {os.path.basename(path)}"
+        if action == "ignore":
+            database.set_finding_status(finding_id, "ignored")
+            return jsonify({"ok": True, "status": "ignored", "message": "Finding ignored."})
 
-        elif action == "quarantine":
-            os.makedirs(YARA_QUARANTINE_DIR, exist_ok=True)
-            stamp = time.strftime("%Y%m%d_%H%M%S")
-            dest = os.path.join(YARA_QUARANTINE_DIR,
-                                f"{stamp}_{os.path.basename(path)}")
-            shutil.move(path, dest)
-            database.remove_yara_finding(finding_id)
-            msg = f"Quarantined to {dest}"
+        if action == "restore":
+            database.set_finding_status(finding_id, "active")
+            if sha256:
+                database.remove_yara_whitelist(sha256)  # re-enable detection
+            return jsonify({"ok": True, "status": "active",
+                            "message": "Restored to active."})
 
-        else:  # whitelist
+        if action == "whitelist":
             if not sha256:
                 return jsonify({"ok": False,
-                                "message": "No file hash to whitelist "
-                                           "(memory finding)."}), 400
+                                "message": "No file hash to whitelist (memory finding)."}), 400
             database.add_yara_whitelist(sha256, path, finding.get("rule_name", ""))
-            msg = "Whitelisted - future scans will skip this file hash."
+            database.set_status_by_hash(sha256, "whitelisted")
+            msg = "Whitelisted - future scans will skip this hash."
+
+        elif action == "delete":
+            if not is_disk:
+                return jsonify({"ok": False, "message": "Not a disk finding."}), 400
+            if os.path.isfile(path):
+                os.remove(path)
+                msg = f"Deleted {os.path.basename(path)}"
+            else:
+                msg = "File already removed - marked as deleted."
+            database.set_status_by_location(path, "deleted")
+
+        else:  # quarantine
+            if not is_disk:
+                return jsonify({"ok": False, "message": "Not a disk finding."}), 400
+            if os.path.isfile(path):
+                os.makedirs(YARA_QUARANTINE_DIR, exist_ok=True)
+                stamp = time.strftime("%Y%m%d_%H%M%S")
+                dest = os.path.join(YARA_QUARANTINE_DIR,
+                                    f"{stamp}_{os.path.basename(path)}")
+                shutil.move(path, dest)
+                msg = f"Quarantined to {dest}"
+            else:
+                msg = "File already removed - marked as quarantined."
+            database.set_status_by_location(path, "quarantined")
 
         print(f"[YARA] finding #{finding_id} action={action}: {msg}", flush=True)
-        return jsonify({"ok": True, "message": msg})
+        return jsonify({"ok": True, "status": action.replace("quarantine", "quarantined")
+                                              .replace("delete", "deleted")
+                                              .replace("whitelist", "whitelisted"),
+                        "message": msg})
 
     except Exception as e:
         return jsonify({"ok": False, "message": f"Action failed: {e}"}), 500
+
+
+@yara_bp.route("/yara/managed/<status>")
+def yara_managed(status):
+    """Findings currently in a managed status (for the category views)."""
+    if status not in ("quarantined", "whitelisted", "ignored", "deleted", "active"):
+        return jsonify({"findings": [], "error": "bad status"}), 400
+    return jsonify({"status": status,
+                    "findings": database.get_findings_by_status(status)})
+
+
+@yara_bp.route("/yara/managed_counts")
+def yara_managed_counts():
+    return jsonify(database.get_finding_status_counts())

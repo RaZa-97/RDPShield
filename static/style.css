@@ -491,9 +491,18 @@ code {
 .btn-sm.btn-wl  { background: rgba(37, 99, 235, 0.12);  color: #2563eb; }
 .btn-sm.btn-q   { background: rgba(234, 88, 12, 0.12);  color: #ea580c; }
 .btn-sm.btn-del { background: rgba(220, 38, 38, 0.12);  color: #dc2626; }
+.btn-sm.btn-ig  { background: rgba(107, 118, 134, 0.14); color: #6b7686; }
 .btn-sm:disabled { opacity: 0.5; cursor: default; }
 .copy-hash { cursor: pointer; }
 .copy-hash:hover { text-decoration: underline; }
+
+/* YARA finding status badges */
+.st { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: capitalize; }
+.st-active      { background: rgba(22, 163, 74, 0.12);  color: #16a34a; }
+.st-quarantined { background: rgba(234, 88, 12, 0.12);  color: #ea580c; }
+.st-whitelisted { background: rgba(37, 99, 235, 0.12);  color: #2563eb; }
+.st-ignored     { background: rgba(107, 118, 134, 0.14); color: #6b7686; }
+.st-deleted     { background: rgba(220, 38, 38, 0.12);  color: #dc2626; }
 
 /* YARA severity / type badges */
 .b-CRITICAL { background: rgba(220, 38, 38, 0.1); color: var(--critical); }

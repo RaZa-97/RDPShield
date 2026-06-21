@@ -68,10 +68,22 @@
     <h2 id="findingsTitle">Findings</h2>
     <table>
       <thead>
-        <tr><th>Severity</th><th>Rule</th><th>Type</th><th>Location</th><th>SHA-256</th><th>VirusTotal</th><th>Actions</th></tr>
+        <tr><th>Severity</th><th>Rule</th><th>Type</th><th>Location</th><th>SHA-256</th><th>VirusTotal</th><th>Status</th><th>Actions</th></tr>
       </thead>
       <tbody id="findingsBody"></tbody>
     </table>
+  </div>
+
+  <div class="panel">
+    <h2>Managed Findings</h2>
+    <p class="muted" style="margin-top:-6px;">Files you've actioned. Open a category to review or change the action.</p>
+    <div class="btn-row">
+      <button class="btn btn-disk" onclick="loadManaged('quarantined')">Quarantined (<span id="cnt-quarantined">0</span>)</button>
+      <button class="btn btn-disk" onclick="loadManaged('whitelisted')">Whitelisted (<span id="cnt-whitelisted">0</span>)</button>
+      <button class="btn btn-disk" onclick="loadManaged('ignored')">Ignored (<span id="cnt-ignored">0</span>)</button>
+      <button class="btn btn-disk" onclick="loadManaged('deleted')">Deleted (<span id="cnt-deleted">0</span>)</button>
+    </div>
+    <div id="managedArea" style="margin-top:14px;"></div>
   </div>
 
 </div>
@@ -158,41 +170,89 @@ function renderHistory(rows){
     </tr>`).join('');
 }
 
+let currentView = null;
+
+function statusBadge(s){ s = s || 'active'; return '<span class="st st-'+s+'">'+s+'</span>'; }
+function abtn(id, action, label, cls){
+  return '<button class="btn-sm '+cls+'" onclick="findingAction('+id+',\''+action+'\',this)">'+label+'</button>';
+}
+
+// Status-appropriate action buttons for a finding.
+function actionsCell(x){
+  const id = x.id, st = x.status || 'active';
+  if(x.match_type !== 'disk'){
+    if(st === 'active')  return abtn(id,'ignore','Ignore','btn-ig');
+    if(st === 'ignored') return abtn(id,'restore','Restore','btn-wl');
+    return '<span class="muted">—</span>';
+  }
+  switch(st){
+    case 'deleted':     return '<span class="muted">file removed</span>';
+    case 'quarantined': return abtn(id,'delete','Delete','btn-del') + abtn(id,'restore','Restore','btn-wl');
+    case 'whitelisted': return abtn(id,'quarantine','Quarantine','btn-q') + abtn(id,'delete','Delete','btn-del') + abtn(id,'restore','Un-whitelist','btn-wl');
+    case 'ignored':     return abtn(id,'restore','Restore','btn-wl');
+    default:            return abtn(id,'whitelist','Whitelist','btn-wl') + abtn(id,'quarantine','Quarantine','btn-q') + abtn(id,'delete','Delete','btn-del') + abtn(id,'ignore','Ignore','btn-ig');
+  }
+}
+
+function findingRow(x, withVt){
+  const sha = x.sha256 || '';
+  const hashCell = sha
+    ? `<span class="mono copy-hash" title="Click to copy full hash" onclick="copyHash('${esc(sha)}')">${esc(sha.slice(0,12))}… &#128203;</span>`
+    : '<span class="muted">—</span>';
+  let cols = `<td>${sev(x.severity)}</td><td class="mono">${esc(x.rule_name)}</td>`
+    + `<td>${typeTag(x.match_type)}</td>`
+    + `<td class="mono" title="${esc(x.location)}">${esc(x.location)}</td><td>${hashCell}</td>`;
+  if(withVt){
+    cols += `<td class="vt-cell">${sha ? `<button class="btn-sm" onclick="vtHash('${esc(sha)}', this)">Check VT</button>` : '<span class="muted">—</span>'}</td>`;
+  }
+  cols += `<td>${statusBadge(x.status)}</td><td class="actions-cell">${actionsCell(x)}</td>`;
+  return `<tr id="finding-row-${x.id}">${cols}</tr>`;
+}
+
 async function loadFindings(id){
+  currentView = {kind:'scan', id:id};
   const panel=document.getElementById('findingsPanel');
   const body=document.getElementById('findingsBody');
   document.getElementById('findingsTitle').textContent='Findings — Scan #'+id;
   panel.style.display='block';
-  body.innerHTML='<tr><td colspan="7" class="empty">Loading…</td></tr>';
+  body.innerHTML='<tr><td colspan="8" class="empty">Loading…</td></tr>';
   panel.scrollIntoView({behavior:'smooth',block:'nearest'});
   try{
     const r=await fetch('/yara/findings/'+id); const d=await r.json();
     const f=d.findings||[];
-    if(!f.length){ body.innerHTML='<tr><td colspan="7" class="empty">No findings — clean scan.</td></tr>'; return; }
-    body.innerHTML=f.map(x=>{
-      const sha = x.sha256 || '';
-      const hashCell = sha
-        ? `<span class="mono copy-hash" title="Click to copy full hash" onclick="copyHash('${esc(sha)}')">${esc(sha.slice(0,12))}… &#128203;</span>`
-        : '<span class="muted">—</span>';
-      const vtCell = sha
-        ? `<button class="btn-sm" onclick="vtHash('${esc(sha)}', this)">Check VT</button>`
-        : '<span class="muted">—</span>';
-      const actions = (x.match_type === 'disk')
-        ? `<button class="btn-sm btn-wl" onclick="findingAction(${x.id},'whitelist',this)">Whitelist</button>`
-          + `<button class="btn-sm btn-q" onclick="findingAction(${x.id},'quarantine',this)">Quarantine</button>`
-          + `<button class="btn-sm btn-del" onclick="findingAction(${x.id},'delete',this)">Delete</button>`
-        : '<span class="muted">memory</span>';
-      return `<tr id="finding-row-${x.id}">
-        <td>${sev(x.severity)}</td>
-        <td class="mono">${esc(x.rule_name)}</td>
-        <td>${typeTag(x.match_type)}</td>
-        <td class="mono" title="${esc(x.location)}">${esc(x.location)}</td>
-        <td>${hashCell}</td>
-        <td class="vt-cell">${vtCell}</td>
-        <td class="actions-cell">${actions}</td>
-      </tr>`;
-    }).join('');
-  }catch(e){ body.innerHTML='<tr><td colspan="7" class="empty">Failed to load findings.</td></tr>'; }
+    if(!f.length){ body.innerHTML='<tr><td colspan="8" class="empty">No findings — clean scan.</td></tr>'; return; }
+    body.innerHTML=f.map(x=>findingRow(x, true)).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="8" class="empty">Failed to load findings.</td></tr>'; }
+}
+
+// --- Managed (categorised) views: Quarantined / Whitelisted / Ignored / Deleted ---
+async function loadManaged(status){
+  currentView = {kind:'managed', status:status};
+  const area=document.getElementById('managedArea');
+  area.innerHTML='<p class="muted">Loading…</p>';
+  try{
+    const r=await fetch('/yara/managed/'+status); const d=await r.json();
+    const f=d.findings||[];
+    if(!f.length){ area.innerHTML=`<p class="empty">No ${esc(status)} findings.</p>`; return; }
+    area.innerHTML = `<h2 style="text-transform:capitalize;">${esc(status)} (${f.length})</h2>`
+      + `<table><thead><tr><th>Severity</th><th>Rule</th><th>Type</th><th>Location</th><th>SHA-256</th><th>Status</th><th>Actions</th></tr></thead><tbody>`
+      + f.map(x=>findingRow(x, false)).join('') + `</tbody></table>`;
+  }catch(e){ area.innerHTML='<p class="empty">Failed to load.</p>'; }
+}
+
+async function refreshManagedCounts(){
+  try{
+    const r=await fetch('/yara/managed_counts'); const c=await r.json();
+    ['quarantined','whitelisted','ignored','deleted'].forEach(s=>{
+      const el=document.getElementById('cnt-'+s); if(el) el.textContent=c[s]||0;
+    });
+  }catch(e){}
+}
+
+function reloadCurrentView(){
+  if(!currentView) return;
+  if(currentView.kind==='scan') loadFindings(currentView.id);
+  else loadManaged(currentView.status);
 }
 
 // --- VirusTotal hash lookup (on-demand) ---
@@ -203,17 +263,17 @@ async function vtHash(sha, btn){
     const cell = btn.parentElement;
     if(d.found){
       const cls = d.malicious > 0 ? 'score-high' : 'score-low';
-      cell.innerHTML = `<a href="${d.permalink}" target="_blank" class="${cls}">`
-        + `${d.malicious}/${d.total} malicious</a>`;
+      cell.innerHTML = `<a href="${d.permalink}" target="_blank" class="${cls}">${d.malicious}/${d.total} malicious</a>`;
     } else {
       cell.innerHTML = `<span class="muted">${esc(d.reason || 'not found')}</span>`;
     }
   }catch(e){ btn.disabled = false; btn.textContent = 'Check VT'; toast('VirusTotal request failed.'); }
 }
 
-// --- delete / quarantine / whitelist a finding ---
+// --- finding actions: delete / quarantine / whitelist / ignore / restore ---
 function findingAction(id, action, btn){
-  const verb = {delete:'delete', quarantine:'quarantine', whitelist:'whitelist'}[action];
+  if(action === 'ignore' || action === 'restore'){ doFindingAction(id, action); return; }
+  const verb = action.charAt(0).toUpperCase() + action.slice(1);
   const msg = {
     delete:    'Permanently delete this file from disk?',
     quarantine:'Move this file to the quarantine folder?',
@@ -221,11 +281,7 @@ function findingAction(id, action, btn){
   }[action];
   const run = () => doFindingAction(id, action);
   if(window.showConfirm){
-    showConfirm(msg, run, {
-      title: verb.charAt(0).toUpperCase() + verb.slice(1) + ' finding',
-      okText: verb.charAt(0).toUpperCase() + verb.slice(1),
-      danger: action !== 'whitelist',
-    });
+    showConfirm(msg, run, { title: verb + ' finding', okText: verb, danger: action !== 'whitelist' });
   } else if(confirm(msg)){ run(); }
 }
 async function doFindingAction(id, action){
@@ -236,18 +292,7 @@ async function doFindingAction(id, action){
     });
     const d = await r.json();
     toast(d.message || (d.ok ? 'Done.' : 'Action failed.'));
-    if(d.ok){
-      const row = document.getElementById('finding-row-' + id);
-      if(row){
-        if(action === 'whitelist'){
-          row.style.opacity = '0.45';
-          const ac = row.querySelector('.actions-cell');
-          if(ac) ac.innerHTML = '<span class="muted">whitelisted</span>';
-        } else {
-          row.remove();  // deleted or quarantined
-        }
-      }
-    }
+    if(d.ok){ reloadCurrentView(); refreshManagedCounts(); }
   }catch(e){ toast('Request failed.'); }
 }
 
@@ -263,7 +308,9 @@ async function startScan(kind){
 }
 
 refresh();
+refreshManagedCounts();
 setInterval(refresh, 3000);
+setInterval(refreshManagedCounts, 15000);
 </script>
 </body>
 </html>

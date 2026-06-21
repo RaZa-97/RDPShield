@@ -246,6 +246,9 @@ def _migrate_yara_findings_columns(c):
         c.execute("ALTER TABLE yara_findings ADD COLUMN suppressed INTEGER DEFAULT 0")
     if "sha256" not in cols:
         c.execute("ALTER TABLE yara_findings ADD COLUMN sha256 TEXT DEFAULT ''")
+    if "status" not in cols:
+        # active | quarantined | whitelisted | ignored | deleted
+        c.execute("ALTER TABLE yara_findings ADD COLUMN status TEXT DEFAULT 'active'")
 
 
 def log_yara_scan(triggered_by, result, started_at, completed_at):
@@ -294,7 +297,7 @@ def get_yara_findings(scan_id):
     c.execute("""
         SELECT id, scan_id, rule_name, severity, category, description,
                match_type, location, matched_strings, detected_at,
-               confidence, suppressed, sha256
+               confidence, suppressed, sha256, status
         FROM yara_findings WHERE scan_id = ?
         ORDER BY suppressed ASC,
                  CASE severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3
@@ -308,10 +311,57 @@ def get_yara_finding(finding_id):
     """One YARA finding by id (for delete/quarantine/whitelist actions)."""
     conn = get_connection(); c = conn.cursor()
     c.execute("""
-        SELECT id, scan_id, rule_name, severity, match_type, location, sha256
+        SELECT id, scan_id, rule_name, severity, match_type, location, sha256, status
         FROM yara_findings WHERE id = ?""", (finding_id,))
     row = c.fetchone(); conn.close()
     return dict(row) if row else None
+
+
+# --- finding status (active|quarantined|whitelisted|ignored|deleted) ---
+
+def set_finding_status(finding_id, status):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE yara_findings SET status = ? WHERE id = ?", (status, finding_id))
+    conn.commit(); conn.close()
+
+
+def set_status_by_location(location, status):
+    """Propagate a status to EVERY finding of the same file (multiple rules can
+    match one file; deleting/quarantining the file must update all of them)."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE yara_findings SET status = ? WHERE location = ?", (status, location))
+    n = c.rowcount; conn.commit(); conn.close()
+    return n
+
+
+def set_status_by_hash(sha256, status):
+    """Propagate a status to every finding with the same file hash."""
+    if not sha256:
+        return 0
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE yara_findings SET status = ? WHERE sha256 = ?", (status, sha256))
+    n = c.rowcount; conn.commit(); conn.close()
+    return n
+
+
+def get_findings_by_status(status, limit=200):
+    """All findings currently in a given status, across every scan."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        SELECT id, scan_id, rule_name, severity, match_type, location,
+               sha256, status, detected_at
+        FROM yara_findings WHERE status = ?
+        ORDER BY id DESC LIMIT ?""", (status, limit))
+    rows = [dict(r) for r in c.fetchall()]; conn.close()
+    return rows
+
+
+def get_finding_status_counts():
+    """Counts per managed status, for the dashboard category buttons."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT status, COUNT(*) AS cnt FROM yara_findings GROUP BY status")
+    counts = {r["status"]: r["cnt"] for r in c.fetchall()}; conn.close()
+    return counts
 
 
 # --- YARA finding whitelist (operator-cleared file hashes) ---
@@ -338,6 +388,13 @@ def get_yara_whitelist_hashes():
     c.execute("SELECT sha256 FROM yara_whitelist WHERE sha256 != ''")
     rows = [r["sha256"] for r in c.fetchall()]; conn.close()
     return rows
+
+
+def remove_yara_whitelist(sha256):
+    """Remove a hash from the whitelist (so future scans detect it again)."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("DELETE FROM yara_whitelist WHERE sha256 = ?", (sha256,))
+    conn.commit(); conn.close()
 
 
 def remove_yara_finding(finding_id):
