@@ -6,7 +6,6 @@
     <title>RDPShield Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <meta http-equiv="refresh" content="10">
 </head>
 <body>
     <div class="container">
@@ -26,26 +25,26 @@
                 <h1>RDPShield Dashboard</h1>
                 <p class="subtitle">RDP Brute Force Detection Agent</p>
             </div>
-            <span class="live-pill"><span class="live-dot"></span>Live &middot; auto-refreshes every 10s</span>
+            <span class="live-pill"><span class="live-dot"></span>Live &middot; updates in place every 10s</span>
         </header>
 
         <!-- Stats Cards -->
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Failed Logins</div>
-                <div class="stat-number">{{ stats.total_failed_logins }}</div>
+                <div class="stat-number" id="stat-failed">{{ stats.total_failed_logins }}</div>
             </div>
             <div class="stat-card tone-critical">
                 <div class="stat-label">Alerts Triggered</div>
-                <div class="stat-number">{{ stats.total_alerts }}</div>
+                <div class="stat-number" id="stat-alerts">{{ stats.total_alerts }}</div>
             </div>
             <div class="stat-card tone-high">
                 <div class="stat-label">IPs Blocked</div>
-                <div class="stat-number">{{ stats.total_blocked }}</div>
+                <div class="stat-number" id="stat-blocked">{{ stats.total_blocked }}</div>
             </div>
             <div class="stat-card tone-info">
                 <div class="stat-label">Unique Attackers</div>
-                <div class="stat-number">{{ stats.unique_attacker_ips }}</div>
+                <div class="stat-number" id="stat-attackers">{{ stats.unique_attacker_ips }}</div>
             </div>
         </div>
 
@@ -95,6 +94,7 @@
         <!-- Active Alerts -->
         <div class="section">
             <h2>&#9888; Recent Alerts</h2>
+            <div id="alertsSection">
             {% if alerts %}
             <table>
                 <thead>
@@ -139,6 +139,7 @@
             {% else %}
             <p class="empty">No alerts yet. Waiting for attack detection...</p>
             {% endif %}
+            </div>
         </div>
 
         <!-- Blocked IPs -->
@@ -154,6 +155,7 @@
                 <button type="submit" class="btn-add">Block IP</button>
             </form>
 
+            <div id="blockedSection">
             {% if blocked %}
             <table>
                 <thead>
@@ -198,11 +200,13 @@
             {% else %}
             <p class="empty">No IPs currently blocked.</p>
             {% endif %}
+            </div>
         </div>
 
         <!-- Recent Failed Logins -->
         <div class="section">
             <h2>&#128196; Recent Failed Logins</h2>
+            <div id="recentSection">
             {% if recent %}
             <table>
                 <thead>
@@ -251,6 +255,7 @@
             {% else %}
             <p class="empty">No failed login events recorded yet.</p>
             {% endif %}
+            </div>
         </div>
 
         <footer>
@@ -387,6 +392,106 @@
                 plugins: [barShadowPlugin]
             });
         }
+    </script>
+
+    <!-- Live in-place refresh: updates the stat cards and the three tables
+         via the JSON API WITHOUT reloading the page, so scroll position,
+         open forms, and confirm dialogs are never disturbed. Updates pause
+         while a modal is open or while you're typing in a field. -->
+    <script>
+        function esc(t) {
+            return (t == null ? '' : String(t)).replace(/[&<>"]/g,
+                c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        }
+        function abuseCell(s) {
+            if (s === null || s === undefined) return '&mdash;';
+            if (s >= 75) return '<span class="score-high">' + s + '%</span>';
+            if (s >= 25) return '<span class="score-medium">' + s + '%</span>';
+            return '<span class="score-low">' + s + '%</span>';
+        }
+        function setNum(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+
+        function buildAlerts(rows) {
+            if (!rows.length) return '<p class="empty">No alerts yet. Waiting for attack detection...</p>';
+            let h = '<table><thead><tr><th>Time</th><th>Type</th><th>Attacker IP</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>Description</th><th>Blocked</th><th>SMS</th></tr></thead><tbody>';
+            for (const a of rows) {
+                const loc = esc(a.geo_city || '') + (a.geo_country ? ', ' + esc(a.geo_country) : '');
+                h += '<tr class="alert-row-' + esc(a.alert_type) + '">'
+                    + '<td>' + esc((a.timestamp || '').slice(0, 19)) + '</td>'
+                    + '<td><span class="badge badge-' + esc(a.alert_type) + '">' + esc(a.alert_type) + '</span></td>'
+                    + '<td class="ip">' + esc(a.source_ip) + '</td>'
+                    + '<td><strong>' + (a.attempts != null ? a.attempts : 0) + '</strong></td>'
+                    + '<td>' + loc + '</td>'
+                    + '<td>' + esc(a.isp || '—') + '</td>'
+                    + '<td>' + abuseCell(a.abuse_score) + '</td>'
+                    + '<td class="description">' + esc(a.description || '') + '</td>'
+                    + '<td>' + (a.blocked ? '&#9989;' : '&#10060;') + '</td>'
+                    + '<td>' + (a.sms_sent ? '&#9989;' : '&#10060;') + '</td></tr>';
+            }
+            return h + '</tbody></table>';
+        }
+        function buildBlocked(rows) {
+            if (!rows.length) return '<p class="empty">No IPs currently blocked.</p>';
+            let h = '<table><thead><tr><th>IP Address</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>Reason</th><th>Blocked At</th><th>Action</th></tr></thead><tbody>';
+            for (const ip of rows) {
+                h += '<tr><td class="ip">' + esc(ip.ip_address) + '</td>'
+                    + '<td><strong>' + (ip.attempts != null ? ip.attempts : 0) + '</strong></td>'
+                    + '<td>' + esc(ip.country || '—') + '</td>'
+                    + '<td>' + esc(ip.isp || '—') + '</td>'
+                    + '<td>' + abuseCell(ip.abuse_score) + '</td>'
+                    + '<td>' + esc(ip.reason || '') + '</td>'
+                    + '<td>' + esc(ip.blocked_at || '') + '</td>'
+                    + '<td><form method="POST" action="/unblock/' + encodeURIComponent(ip.ip_address) + '" class="confirm-form"'
+                    + ' data-confirm-message="Unblock ' + esc(ip.ip_address) + '? It will be able to attempt logins again."'
+                    + ' data-confirm-title="Unblock IP address" data-confirm-ok="Unblock" style="display:inline;">'
+                    + '<button type="submit" class="btn-unblock">Unblock</button></form></td></tr>';
+            }
+            return h + '</tbody></table>';
+        }
+        function buildRecent(rows) {
+            if (!rows.length) return '<p class="empty">No failed login events recorded yet.</p>';
+            let h = '<table><thead><tr><th>Time</th><th>Source IP</th><th>Country</th><th>ISP</th><th>Abuse Score</th><th>Username</th><th>Domain</th><th>Sub Status</th><th>Action</th></tr></thead><tbody>';
+            for (const e of rows) {
+                h += '<tr><td>' + esc((e.timestamp || '').slice(0, 19)) + '</td>'
+                    + '<td class="ip">' + esc(e.source_ip) + '</td>'
+                    + '<td>' + esc(e.geo_country || '—') + '</td>'
+                    + '<td>' + esc(e.geo_isp || '—') + '</td>'
+                    + '<td>' + abuseCell(e.abuse_score) + '</td>'
+                    + '<td>' + esc(e.username || '') + '</td>'
+                    + '<td>' + esc(e.domain || '') + '</td>'
+                    + '<td><code>' + esc(e.sub_status || '') + '</code></td>'
+                    + '<td><form method="POST" action="/block" class="confirm-form"'
+                    + ' data-confirm-message="Block ' + esc(e.source_ip) + ' at the Windows Firewall? All inbound traffic from it will be dropped."'
+                    + ' data-confirm-title="Block IP address" data-confirm-ok="Block" data-confirm-danger="true" style="display:inline;">'
+                    + '<input type="hidden" name="ip_address" value="' + esc(e.source_ip) + '">'
+                    + '<input type="hidden" name="reason" value="Manually blocked from failed-login list">'
+                    + '<button type="submit" class="btn-remove">Block</button></form></td></tr>';
+            }
+            return h + '</tbody></table>';
+        }
+
+        function liveRefresh() {
+            // Don't disturb the user mid-action.
+            if (document.querySelector('.modal-overlay.show')) return;
+            const ae = document.activeElement;
+            if (ae && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName)) return;
+
+            Promise.all([
+                fetch('/api/stats').then(r => r.json()),
+                fetch('/api/alerts').then(r => r.json()),
+                fetch('/api/blocked').then(r => r.json()),
+                fetch('/api/events').then(r => r.json()),
+            ]).then(([s, al, bl, rc]) => {
+                setNum('stat-failed', s.total_failed_logins);
+                setNum('stat-alerts', s.total_alerts);
+                setNum('stat-blocked', s.total_blocked);
+                setNum('stat-attackers', s.unique_attacker_ips);
+                const aS = document.getElementById('alertsSection'); if (aS) aS.innerHTML = buildAlerts(al);
+                const bS = document.getElementById('blockedSection'); if (bS) bS.innerHTML = buildBlocked(bl);
+                const rS = document.getElementById('recentSection'); if (rS) rS.innerHTML = buildRecent(rc);
+            }).catch(() => { /* keep last view on transient error */ });
+        }
+        setInterval(liveRefresh, 10000);
     </script>
 </body>
 </html>

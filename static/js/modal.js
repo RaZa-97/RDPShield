@@ -45,15 +45,16 @@ function showConfirm(message, onConfirm, opts) {
     document.addEventListener('keydown', onKeydown);
 }
 
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('form.confirm-form').forEach(function (form) {
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            showConfirm(form.dataset.confirmMessage, function () { form.submit(); }, {
-                title: form.dataset.confirmTitle,
-                okText: form.dataset.confirmOk,
-                danger: form.dataset.confirmDanger === 'true',
-            });
-        });
+// Event delegation on the document so it also covers rows that are
+// re-rendered by the dashboard's live AJAX refresh (not just the forms
+// present at initial page load).
+document.addEventListener('submit', function (e) {
+    const form = e.target.closest ? e.target.closest('form.confirm-form') : null;
+    if (!form) return;
+    e.preventDefault();
+    showConfirm(form.dataset.confirmMessage, function () { form.submit(); }, {
+        title: form.dataset.confirmTitle,
+        okText: form.dataset.confirmOk,
+        danger: form.dataset.confirmDanger === 'true',
     });
 });
