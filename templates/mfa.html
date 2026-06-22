@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield — Two-factor</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+            <div>
+                <div class="auth-title">RDPSHIELD</div>
+                <div class="auth-tag">RDP Threat Defense</div>
+            </div>
+        </div>
+
+        <div class="auth-step">STEP 02 / VERIFY</div>
+        <h1 class="auth-h1">Two-factor</h1>
+
+        {% if enrolling %}
+        <p class="auth-sub">Set up two-factor for <strong>{{ username }}</strong>. Scan this QR with
+            Google Authenticator / Authy, then enter the 6-digit code to confirm.</p>
+
+        <div class="mfa-enroll">
+            {% if qr_svg %}
+            <div class="mfa-qr">{{ qr_svg|safe }}</div>
+            {% endif %}
+            <div class="mfa-key">
+                <span class="auth-label">Or enter this key manually</span>
+                <code class="mfa-secret">{{ secret }}</code>
+            </div>
+        </div>
+        {% else %}
+        <p class="auth-sub">Enter the 6-digit code from your authenticator app.</p>
+        {% endif %}
+
+        {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+
+        <form method="POST" action="/mfa" class="auth-form" id="mfaForm">
+            <input class="form-input auth-input mfa-code" type="text" name="code" id="mfaCode"
+                   inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="one-time-code"
+                   placeholder="000000" autofocus required>
+            <button type="submit" class="btn-apply auth-submit">Verify &amp; enter console</button>
+        </form>
+
+        <div class="auth-links">
+            <a href="/login" class="auth-back">&larr; Back to sign in</a>
+        </div>
+    </div>
+
+    <script>
+        // Keep only digits in the code box.
+        const code = document.getElementById('mfaCode');
+        code.addEventListener('input', () => { code.value = code.value.replace(/[^0-9]/g, ''); });
+    </script>
+</body>
+</html>

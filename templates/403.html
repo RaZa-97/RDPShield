@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield — Access denied</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card" style="text-align:center;">
+        <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="" style="margin:0 auto 16px;">
+        <h1 class="auth-h1">Access denied</h1>
+        <p class="auth-sub">This action needs <strong>admin</strong> privileges. Your account has view &amp; export access only.</p>
+        <a href="/" class="btn-apply auth-submit" style="display:inline-block;text-decoration:none;">&larr; Back to dashboard</a>
+    </div>
+</body>
+</html>

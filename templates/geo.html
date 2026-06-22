@@ -10,14 +10,7 @@
 <body>
     <div class="container">
         <!-- Navigation Bar -->
-        <nav class="navbar">
-            <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
-            <div class="nav-links">
-                <a href="/" class="nav-link">Dashboard</a>
-                <a href="/geo" class="nav-link active">Advanced Security</a>
-                <a href="/yara" class="nav-link">YARA Controller</a>
-            </div>
-        </nav>
+        {% with active='geo' %}{% include '_topbar.html' %}{% endwith %}
 
         <!-- Header -->
         <header>
@@ -36,6 +29,7 @@
             </h2>
             <p class="section-desc">Control remote access based on geographic location. Either allow connections from anywhere (attack detection only), or restrict access to a whitelist of countries.</p>
 
+            {% if is_admin %}
             <form method="POST" action="/geo/set_mode" class="mode-form" id="geoModeForm">
                 <div class="mode-options">
                     <label class="mode-option {% if mode == 'allow_anywhere' %}mode-selected{% endif %}">
@@ -63,6 +57,9 @@
                     <button type="submit" class="btn-apply" id="geoApplyBtn">Apply geolocation mode</button>
                 </div>
             </form>
+            {% else %}
+            <p class="section-desc"><em>View-only:</em> geolocation mode is managed by an administrator.</p>
+            {% endif %}
 
             <!-- Geolocation stats + graph -->
             <div class="charts-row">
@@ -92,6 +89,7 @@
             <!-- Allowed Countries -->
             <h3 style="margin-top:24px;">&#9989; Allowed Countries</h3>
             <p class="section-desc">Countries here are permitted when "country list" mode is active. Names must match ip-api.com format (e.g., "Sri Lanka", "United States").</p>
+            {% if is_admin %}
             <form method="POST" action="/geo/add_country" class="inline-form">
                 <input type="text" name="country_name" placeholder="Enter country name (e.g., Sri Lanka)" class="form-input" list="countrySuggestions" autocomplete="off" required>
                 <datalist id="countrySuggestions">
@@ -101,14 +99,16 @@
                 </datalist>
                 <button type="submit" class="btn-add">Add Country</button>
             </form>
+            {% endif %}
             {% if countries %}
             <table>
-                <thead><tr><th>Country</th><th>Added</th><th>Action</th></tr></thead>
+                <thead><tr><th>Country</th><th>Added</th>{% if is_admin %}<th>Action</th>{% endif %}</tr></thead>
                 <tbody>
                     {% for c in countries %}
                     <tr>
                         <td>{{ c.country_name }}</td>
                         <td>{{ c.added_at }}</td>
+                        {% if is_admin %}
                         <td>
                             <form method="POST" action="/geo/remove_country/{{ c.country_name }}" class="confirm-form"
                                   data-confirm-message="Remove {{ c.country_name }} from the allowed countries list?"
@@ -117,6 +117,7 @@
                                 <button type="submit" class="btn-remove">Remove</button>
                             </form>
                         </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -130,7 +131,7 @@
             {% if geo_events %}
             <table>
                 <thead>
-                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Abuse</th><th>Event</th><th>Action</th><th>Reason</th><th>Manage</th></tr>
+                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Abuse</th><th>Event</th><th>Action</th><th>Reason</th>{% if is_admin %}<th>Manage</th>{% endif %}</tr>
                 </thead>
                 <tbody>
                     {% for e in geo_events[:5] %}
@@ -153,6 +154,7 @@
                             {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}
                         </td>
                         <td class="description">{{ e.reason }}</td>
+                        {% if is_admin %}
                         <td>
                             {% if e.source_ip in active_blocked_ips %}
                             <form method="POST" action="/unblock/{{ e.source_ip }}" class="confirm-form"
@@ -164,6 +166,7 @@
                             </form>
                             {% else %}&mdash;{% endif %}
                         </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -171,7 +174,10 @@
             {% else %}
             <p class="empty">No geolocation events yet. Events appear here when country-list mode is active and public IPs connect.</p>
             {% endif %}
-            {% if geo_events %}<a href="/list/geo_events" target="_blank" class="btn-viewall">View full geolocation log &rarr;</a>{% endif %}
+            <div class="table-actions">
+                {% if geo_events %}<a href="/list/geo_events" target="_blank" class="btn-viewall">View full geolocation log &rarr;</a>{% endif %}
+                <a href="/export/geo_events.csv" class="btn-export">&#11015; Export CSV</a>
+            </div>
         </div>
 
         <!-- ================= SECTION 2: WHITELIST SETTINGS ================= -->
@@ -181,6 +187,7 @@
             </h2>
             <p class="section-desc">Lock access down to an explicit IP allow list. When enabled, nobody connects unless their IP is listed below &mdash; public <strong>and</strong> private, with no automatic pass.</p>
 
+            {% if is_admin %}
             <form method="POST" action="/geo/set_mode" class="mode-form" id="whitelistModeForm">
                 <input type="hidden" name="geo_mode" value="private_and_allowed">
                 <div class="mode-options">
@@ -201,6 +208,9 @@
                     </button>
                 </div>
             </form>
+            {% else %}
+            <p class="section-desc"><em>View-only:</em> whitelist-only mode is managed by an administrator.</p>
+            {% endif %}
 
             <!-- Whitelist stats + graph -->
             <div class="charts-row">
@@ -230,20 +240,23 @@
             <!-- Allowed IPs -->
             <h3 style="margin-top:24px;">&#9989; Allowed IP Addresses</h3>
             <p class="section-desc"><strong>Only</strong> the IPs listed here can connect when whitelist-only mode is active &mdash; public or private.</p>
+            {% if is_admin %}
             <form method="POST" action="/geo/add_ip" class="inline-form">
                 <input type="text" name="ip_address" placeholder="IP address (e.g., 203.0.113.50 or 10.0.100.5)" class="form-input" required>
                 <input type="text" name="description" placeholder="Description (optional)" class="form-input">
                 <button type="submit" class="btn-add">Add IP</button>
             </form>
+            {% endif %}
             {% if allowed_ips %}
             <table>
-                <thead><tr><th>IP Address</th><th>Description</th><th>Added</th><th>Action</th></tr></thead>
+                <thead><tr><th>IP Address</th><th>Description</th><th>Added</th>{% if is_admin %}<th>Action</th>{% endif %}</tr></thead>
                 <tbody>
                     {% for ip in allowed_ips %}
                     <tr>
                         <td class="ip">{{ ip.ip_address }}</td>
                         <td>{{ ip.description }}</td>
                         <td>{{ ip.added_at }}</td>
+                        {% if is_admin %}
                         <td>
                             <form method="POST" action="/geo/remove_ip/{{ ip.ip_address }}" class="confirm-form"
                                   data-confirm-message="Remove {{ ip.ip_address }} from the allowed IPs list?"
@@ -252,6 +265,7 @@
                                 <button type="submit" class="btn-remove">Remove</button>
                             </form>
                         </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -265,7 +279,7 @@
             {% if whitelist_events %}
             <table>
                 <thead>
-                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Abuse</th><th>Event</th><th>Action</th><th>Reason</th><th>Manage</th></tr>
+                    <tr><th>Time</th><th>IP Address</th><th>User</th><th>Country</th><th>City</th><th>ISP</th><th>Abuse</th><th>Event</th><th>Action</th><th>Reason</th>{% if is_admin %}<th>Manage</th>{% endif %}</tr>
                 </thead>
                 <tbody>
                     {% for e in whitelist_events[:5] %}
@@ -288,6 +302,7 @@
                             {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}
                         </td>
                         <td class="description">{{ e.reason }}</td>
+                        {% if is_admin %}
                         <td>
                             {% if e.source_ip in active_blocked_ips %}
                             <form method="POST" action="/unblock/{{ e.source_ip }}" class="confirm-form"
@@ -299,6 +314,7 @@
                             </form>
                             {% else %}&mdash;{% endif %}
                         </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -306,7 +322,10 @@
             {% else %}
             <p class="empty">No whitelist events yet. Events appear here when whitelist-only mode is active and IPs connect.</p>
             {% endif %}
-            {% if whitelist_events %}<a href="/list/whitelist_events" target="_blank" class="btn-viewall">View full whitelist log &rarr;</a>{% endif %}
+            <div class="table-actions">
+                {% if whitelist_events %}<a href="/list/whitelist_events" target="_blank" class="btn-viewall">View full whitelist log &rarr;</a>{% endif %}
+                <a href="/export/whitelist_events.csv" class="btn-export">&#11015; Export CSV</a>
+            </div>
         </div>
 
         <footer>
@@ -331,6 +350,8 @@
         const allowedIpCount = {{ allowed_ips | length }};
         const allowedCountryCount = {{ countries | length }};
 
+        // Mode-changing controls only exist for admins; guests get a read-only view.
+        {% if is_admin %}
         // ---- Geolocation mode form (allow_anywhere / country_list) ----
         const geoModeForm = document.getElementById('geoModeForm');
         const geoApplyBtn = document.getElementById('geoApplyBtn');
@@ -381,6 +402,7 @@
                 () => whitelistModeForm.submit(),
                 { title: 'Enable whitelist-only mode', okText: 'Enable anyway', danger: true });
         });
+        {% endif %}
 
         // ---- Per-section Allowed vs Blocked mini bar charts ----
         function miniBar(canvasId, allowed, blocked) {

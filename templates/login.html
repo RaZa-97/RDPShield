@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield — Sign in</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+            <div>
+                <div class="auth-title">RDPSHIELD</div>
+                <div class="auth-tag">RDP Threat Defense</div>
+            </div>
+        </div>
+
+        <div class="auth-step">STEP 01 / AUTHENTICATE</div>
+        <h1 class="auth-h1">Sign in</h1>
+        <p class="auth-sub">Access the RDPShield operations console.</p>
+
+        {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+
+        <form method="POST" action="/login" class="auth-form">
+            <label class="auth-label" for="username">Username</label>
+            <input class="form-input auth-input" type="text" id="username" name="username"
+                   autocomplete="username" autofocus required>
+
+            <label class="auth-label" for="password">Password</label>
+            <input class="form-input auth-input" type="password" id="password" name="password"
+                   autocomplete="current-password" required>
+
+            <label class="auth-remember">
+                <input type="checkbox" name="remember"> Remember this device
+            </label>
+
+            <button type="submit" class="btn-apply auth-submit">Continue &rarr;</button>
+        </form>
+
+        <div class="auth-foot"><span class="live-dot"></span> session encrypted</div>
+    </div>
+</body>
+</html>

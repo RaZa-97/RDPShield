@@ -22,6 +22,16 @@ schtasks /run /tn "RDPShield-Agent" & schtasks /run /tn "RDPShield-Dashboard"
 ```
 Browser hard-refresh (Ctrl+F5) after template/JS changes.
 
+### NEW server dependencies (v3.3 — auth/MFA)
+After this pull, install on the server before restarting:
+```cmd
+pip install pyotp qrcode
+```
+`pyotp` is **required** (login won't start without it). `qrcode` is optional — it renders the enrollment QR; without it the MFA page still shows the secret key for manual entry.
+
+### First login (v3.3)
+On first start with no users, an **admin / admin** account is auto-seeded (printed to the log). Log in → you're forced to **enroll TOTP** (scan QR / enter secret in Google Authenticator or Authy) → then change the password and add real users via **Users** (admin-only nav). Roles: **admin** = full control; **guest** = view + CSV export only. Lost-phone recovery: an admin can **Reset MFA** for any user from the Users page (they re-enroll next login). The seeded admin password is `admin` — change it / replace the account.
+
 ### config.py is GITIGNORED — new settings must be hand-added on the server
 After a pull that introduces a new config setting, add it to the server's `config.py` by hand (the code imports it; missing → dashboard won't start with `ImportError`). Settings currently required beyond the original file:
 ```python
@@ -57,7 +67,11 @@ Python on server: **3.11 32-bit**. UTF-8 mode (`set PYTHONUTF8=1`) is required o
 - **YARA Controller:** disk + memory scans; each disk finding has a **SHA-256** (click-to-copy); **Check VT** button. Findings carry a **status** (`active|quarantined|whitelisted|ignored|deleted`) shown as a badge with status-aware action buttons: **Whitelist / Quarantine / Delete / Ignore** (active) and **Restore / Un-whitelist** etc. Actions update status (rows are NOT deleted) and **propagate to sibling findings of the same file** (by location/hash) — so multiple rule matches on one file move together and acting on an already-removed file is graceful (marked, not errored). A **Managed Findings** panel gives categorised views (Quarantined / Whitelisted / Ignored / Deleted, with counts), each with relevant follow-up actions. Whitelisted hashes are skipped by future scans (`yara_whitelist` table). Quarantine moves files to `YARA_QUARANTINE_DIR`.
   - Routes: `/yara/finding/action` (delete|quarantine|whitelist|ignore|restore), `/yara/managed/<status>`, `/yara/managed_counts`, `/yara/vt/hash/<sha>`, `/yara/vt/ip/<ip>`. DB: `yara_findings.status` + `sha256` columns, `yara_whitelist` table, status setters that propagate by location/hash.
 - **Dashboard:** live **in-place AJAX refresh** (no full-page reload — stat cards + 3 tables update via JSON, paused while a modal is open or a field is focused). Tables show attempts, country, ISP, abuse score, VT. Alert-breakdown chart labels: `geo_block`→"Geo Blocked", `whitelist_block`→"Non-Whitelisted IPs".
-- **Preview tables + full-list pages:** every growing table/log shows only the **latest 5 rows inline** with a **"View all" button** that opens a clean, searchable, client-side-paginated full-list page in a **new tab** (`/list/<key>`). Covered: dashboard (alerts, blocked IPs, failed logins), Advanced Security (geo + whitelist event logs), YARA (scan history). Row-rendering markup is shared in `static/js/tables.js` (`TABLE_RENDERERS` + `initListPage`) so the 5-row preview and the full view render identically. List page = `templates/list.html`; registry = `LIST_VIEWS` in `dashboard.py`. Backed by `?limit=` on `/api/{alerts,blocked,events}`, plus new `/api/geo_events` (annotates each row with `is_blocked`) and `/api/yara_scans`. Block/unblock forms carry a `next` field so an action on a list page returns to that list. No DB migration; `get_blocked_ips(limit=…)` gained an optional cap.
+- **Preview tables + full-list pages:** every growing table/log shows only the **latest 5 rows inline** with a **"View all" button** that opens a clean, searchable, client-side-paginated full-list page in a **new tab** (`/list/<key>`). Covered: dashboard (alerts, blocked IPs, failed logins), Advanced Security (geo + whitelist event logs), YARA (scan history). Row-rendering markup is shared in `static/js/tables.js` (`TABLE_RENDERERS` + `initListPage`) so the 5-row preview and the full view render identically. List page = `templates/list.html`; registry = `LIST_VIEWS` in `dashboard.py`. Backed by `?limit=` on `/api/{alerts,blocked,events}`, plus new `/api/geo_events` (annotates each row with `is_blocked`) and `/api/yara_scans`. Block/unblock forms carry a `next` field so an action on a list page returns to that list.
+- **Authentication + MFA + RBAC (v3.3):** username/password login (`/login`) → **TOTP two-factor** (`/mfa`, pyotp) with first-login QR enrollment, then a session. Global `before_request` gate (`PUBLIC_ENDPOINTS` = login/mfa/logout/static) means every page/API requires login; `auth.admin_required` guards all mutations. Roles: **admin** (full control) / **guest** (view + CSV export only). Admin **Users** page (`/users`): add/delete users, set role, **Reset MFA**; guard rails block deleting yourself or the last admin. Default seed = admin/admin (enroll MFA + change on first login). `auth.py` = decorators + password (werkzeug) + TOTP helpers; `users` table + CRUD in `database.py` (`create_users_table`, `create_user`, …). Templates: `login.html`, `mfa.html`, `users.html`, `403.html`.
+- **Operations top bar:** shared `templates/_topbar.html` (light theme) on all authed pages — brand, global search (opens `/list/alerts?q=` filtered), LIVE pill, UTC clock, **user chip** (avatar + name + role + live "active" session timer since login), Sign out. Admins also get a **Users** nav link. Sets `window.IS_ADMIN` so `tables.js` hides block/unblock buttons from guests.
+- **CSV export:** `/export/<key>.csv` (`EXPORT_VIEWS` registry) streams the full dataset for offline analysis — alerts, blocked IPs, failed logins, geo events, whitelist events, YARA scans. "Export CSV" buttons sit beside each "View all"; available to admins **and** guests (login required, not admin).
+- No DB schema migration needed for the v3.2 table work; v3.3 adds the `users` table (auto-created on start). `get_blocked_ips(limit=…)` gained an optional cap.
 - **Daily ML-ready report:** `daily_report.py` → `logs/rdpshield_report_<date>.json` (per-attacker aggregation; scheduled 23:55).
 - **Tooling:** `verify_setup.py` (config/DB health check, masks secrets), `backfill_geo.py` (one-time geo backfill), `TESTING.md` (attack test plan).
 
@@ -132,6 +146,8 @@ xcopy "Z:\database.py"   "C:\RDPShield\" /Y
 xcopy "Z:\dashboard.py"  "C:\RDPShield\" /Y
 xcopy "Z:\rdpshield.py"  "C:\RDPShield\" /Y
 xcopy "Z:\countries.py"  "C:\RDPShield\" /Y
+xcopy "Z:\auth.py"       "C:\RDPShield\" /Y
+xcopy "Z:\yara_routes.py" "C:\RDPShield\" /Y
 
 # Frontend only (browser hard-refresh Ctrl+F5 is enough, no restart needed)
 xcopy "Z:\static\style.css"       "C:\RDPShield\static\" /Y
@@ -141,6 +157,11 @@ xcopy "Z:\templates\index.html"   "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\geo.html"     "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\yara.html"    "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\list.html"    "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\_topbar.html" "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\login.html"   "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\mfa.html"     "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\users.html"   "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\403.html"     "C:\RDPShield\templates\" /Y
 ```
 
 ---

@@ -1,0 +1,74 @@
+<!-- Shared operations-console top bar (light theme).
+     Expects `active` (dashboard|geo|yara|users) in context; `current_user`,
+     `is_admin` and `login_at` come from the global context processor. -->
+<script>
+    window.IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+    window.LOGIN_AT = "{{ login_at or '' }}";
+</script>
+
+<nav class="topbar">
+    <a href="/" class="nav-brand">
+        <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+        RDPShield
+    </a>
+
+    <form class="topbar-search" onsubmit="return globalSearch(event)">
+        <span class="search-icon">&#128269;</span>
+        <input type="text" id="globalSearchInput" placeholder="Search IP, country, alert type…" autocomplete="off">
+    </form>
+
+    <div class="topbar-right">
+        <span class="live-pill"><span class="live-dot"></span>LIVE</span>
+        <span class="topbar-clock" id="topbarClock">--:--:-- UTC</span>
+        {% if current_user %}
+        <div class="user-chip" title="Signed in as {{ current_user.username }} ({{ current_user.role }})">
+            <span class="user-avatar {% if is_admin %}avatar-admin{% else %}avatar-guest{% endif %}">{{ current_user.username[:2]|upper }}</span>
+            <span class="user-meta">
+                <span class="user-name">{{ current_user.username }}</span>
+                <span class="user-role">{{ current_user.role|upper }} &middot; active <span id="activeTime">00:00:00</span></span>
+            </span>
+        </div>
+        <a href="/logout" class="btn-logout" title="Sign out">Sign out</a>
+        {% endif %}
+    </div>
+</nav>
+
+<div class="subnav">
+    <a href="/" class="nav-link {% if active=='dashboard' %}active{% endif %}">Dashboard</a>
+    <a href="/geo" class="nav-link {% if active=='geo' %}active{% endif %}">Advanced Security</a>
+    <a href="/yara" class="nav-link {% if active=='yara' %}active{% endif %}">YARA Controller</a>
+    {% if is_admin %}<a href="/users" class="nav-link {% if active=='users' %}active{% endif %}">Users</a>{% endif %}
+</div>
+
+<script>
+    // Global search -> open the alerts full-list filtered by the query.
+    function globalSearch(e) {
+        e.preventDefault();
+        const q = document.getElementById('globalSearchInput').value.trim();
+        window.open('/list/alerts' + (q ? '?q=' + encodeURIComponent(q) : ''), '_blank');
+        return false;
+    }
+
+    // UTC clock + live "active" session timer (since login).
+    (function () {
+        const clock = document.getElementById('topbarClock');
+        const active = document.getElementById('activeTime');
+        const loginAt = window.LOGIN_AT ? new Date(window.LOGIN_AT) : null;
+        function pad(n) { return String(n).padStart(2, '0'); }
+        function tick() {
+            const now = new Date();
+            if (clock) {
+                clock.textContent = pad(now.getUTCHours()) + ':' + pad(now.getUTCMinutes())
+                    + ':' + pad(now.getUTCSeconds()) + ' UTC';
+            }
+            if (active && loginAt) {
+                let s = Math.max(0, Math.floor((now - loginAt) / 1000));
+                const h = Math.floor(s / 3600); s -= h * 3600;
+                const m = Math.floor(s / 60); s -= m * 60;
+                active.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
+            }
+        }
+        tick();
+        setInterval(tick, 1000);
+    })();
+</script>

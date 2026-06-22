@@ -9,14 +9,7 @@
 </head>
 <body>
     <div class="container">
-        <nav class="navbar">
-            <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
-            <div class="nav-links">
-                <a href="/" class="nav-link">Dashboard</a>
-                <a href="/geo" class="nav-link">Advanced Security</a>
-                <a href="/yara" class="nav-link">YARA Controller</a>
-            </div>
-        </nav>
+        {% include '_topbar.html' %}
 
         <header>
             <div>
@@ -31,6 +24,7 @@
                 <input type="text" id="listSearch" class="form-input list-search"
                        placeholder="Search…" autocomplete="off">
                 <span class="list-info" id="listInfo">Loading…</span>
+                <a href="/export/{{ key }}.csv" class="btn-export">&#11015; Export CSV</a>
             </div>
             <div id="listTable"><p class="empty">Loading…</p></div>
             <div class="pager" id="listPager"></div>

@@ -10,14 +10,7 @@
 <body>
 <div class="yara-wrap">
 
-  <nav class="navbar">
-    <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
-    <div class="nav-links">
-      <a href="/" class="nav-link">Dashboard</a>
-      <a href="/geo" class="nav-link">Advanced Security</a>
-      <a href="/yara" class="nav-link active">YARA Controller</a>
-    </div>
-  </nav>
+  {% with active='yara' %}{% include '_topbar.html' %}{% endwith %}
 
   <div class="yara-head">
     <div>
@@ -26,11 +19,15 @@
          a critical hit. <b>Memory scan</b> is an on-demand deep inspection of process memory -
          slower, reviewed here only, and never sends SMS. There is no background scanning.</p>
     </div>
+    {% if is_admin %}
     <div class="btn-row">
       <button id="diskBtn" class="btn btn-disk" onclick="startScan('disk')">Run Disk Scan</button>
       <button id="memBtn"  class="btn btn-mem"  onclick="startScan('memory')">Run Memory Scan</button>
       <div class="btn-note">Memory scan walks every process &mdash; expect ~1&ndash;2 min.</div>
     </div>
+    {% else %}
+    <div class="btn-note">Scans and finding actions are admin-only. You have view &amp; export access.</div>
+    {% endif %}
   </div>
 
   <div class="status-row">
@@ -62,7 +59,10 @@
         <tr><td colspan="7" class="empty">Loading…</td></tr>
       </tbody>
     </table>
-    <a href="/list/yara_scans" target="_blank" class="btn-viewall">View full scan history &rarr;</a>
+    <div class="table-actions">
+      <a href="/list/yara_scans" target="_blank" class="btn-viewall">View full scan history &rarr;</a>
+      <a href="/export/yara_scans.csv" class="btn-export">&#11015; Export CSV</a>
+    </div>
   </div>
 
   <div class="panel" id="findingsPanel" style="display:none;">
@@ -178,8 +178,9 @@ function abtn(id, action, label, cls){
   return '<button class="btn-sm '+cls+'" onclick="findingAction('+id+',\''+action+'\',this)">'+label+'</button>';
 }
 
-// Status-appropriate action buttons for a finding.
+// Status-appropriate action buttons for a finding. Guests are view-only.
 function actionsCell(x){
+  if(!window.IS_ADMIN){ return '<span class="muted">view only</span>'; }
   const id = x.id, st = x.status || 'active';
   if(x.match_type !== 'disk'){
     if(st === 'active')  return abtn(id,'ignore','Ignore','btn-ig');

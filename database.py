@@ -185,6 +185,7 @@ def init_db():
     conn.commit()
     conn.close()
     create_yara_tables()
+    create_users_table()
     print("[DB] Database initialized successfully.")
 
 # ============ YARA tables (v3.0) ============
@@ -1097,6 +1098,114 @@ def get_geo_stats():
         "top_blocked_country": top_blocked_country,
         "geo_mode": mode,
     }
+
+
+# =============================================================================
+# USER ACCOUNTS + MFA (v3.3)
+# =============================================================================
+# Two roles:
+#   admin - full control (block/unblock, settings, YARA actions, user mgmt)
+#   guest - view dashboards/logs + CSV export only
+# Passwords are stored as werkzeug hashes (hashing happens in the auth layer);
+# this module is hashing-agnostic and only stores/returns the hash string.
+# totp_secret is the per-user base32 TOTP seed; mfa_enabled flips to 1 once the
+# user has confirmed enrollment with a valid code.
+
+def create_users_table():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role          TEXT NOT NULL DEFAULT 'guest',
+            totp_secret   TEXT,
+            mfa_enabled   INTEGER DEFAULT 0,
+            created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+            last_login    TEXT
+        )""")
+    conn.commit(); conn.close()
+
+
+def count_users():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT COUNT(*) AS cnt FROM users")
+    n = c.fetchone()["cnt"]; conn.close()
+    return n
+
+
+def create_user(username, password_hash, role="guest", totp_secret=None,
+                mfa_enabled=0):
+    """Create a user. Returns True on success, False if the name is taken."""
+    conn = get_connection(); c = conn.cursor()
+    try:
+        c.execute("""
+            INSERT INTO users (username, password_hash, role, totp_secret, mfa_enabled)
+            VALUES (?, ?, ?, ?, ?)
+        """, (username, password_hash, role, totp_secret, mfa_enabled))
+        conn.commit(); ok = True
+    except sqlite3.IntegrityError:
+        ok = False
+    conn.close()
+    return ok
+
+
+def get_user_by_username(username):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ?", (username,))
+    row = c.fetchone(); conn.close()
+    return dict(row) if row else None
+
+
+def get_user_by_id(user_id):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone(); conn.close()
+    return dict(row) if row else None
+
+
+def list_users():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        SELECT id, username, role, mfa_enabled, created_at, last_login
+        FROM users ORDER BY role = 'admin' DESC, username ASC
+    """)
+    rows = [dict(r) for r in c.fetchall()]; conn.close()
+    return rows
+
+
+def delete_user(user_id):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    n = c.rowcount; conn.commit(); conn.close()
+    return n > 0
+
+
+def count_admins():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT COUNT(*) AS cnt FROM users WHERE role = 'admin'")
+    n = c.fetchone()["cnt"]; conn.close()
+    return n
+
+
+def set_user_totp(user_id, secret, enabled=1):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE users SET totp_secret = ?, mfa_enabled = ? WHERE id = ?",
+              (secret, enabled, user_id))
+    conn.commit(); conn.close()
+
+
+def update_user_password(user_id, password_hash):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+              (password_hash, user_id))
+    conn.commit(); conn.close()
+
+
+def update_last_login(user_id, when):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE users SET last_login = ? WHERE id = ?", (when, user_id))
+    conn.commit(); conn.close()
 
 
 # If this file is run directly, initialize the database

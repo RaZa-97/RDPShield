@@ -10,14 +10,7 @@
 <body>
     <div class="container">
         <!-- Navigation Bar -->
-        <nav class="navbar">
-            <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
-            <div class="nav-links">
-                <a href="/" class="nav-link active">Dashboard</a>
-                <a href="/geo" class="nav-link">Advanced Security</a>
-                <a href="/yara" class="nav-link">YARA Controller</a>
-            </div>
-        </nav>
+        {% with active='dashboard' %}{% include '_topbar.html' %}{% endwith %}
 
         <!-- Header -->
         <header>
@@ -142,14 +135,18 @@
             <p class="empty">No alerts yet. Waiting for attack detection...</p>
             {% endif %}
             </div>
-            <a href="/list/alerts" target="_blank" class="btn-viewall">View all alerts ({{ stats.total_alerts }}) &rarr;</a>
+            <div class="table-actions">
+                <a href="/list/alerts" target="_blank" class="btn-viewall">View all alerts ({{ stats.total_alerts }}) &rarr;</a>
+                <a href="/export/alerts.csv" class="btn-export">&#11015; Export CSV</a>
+            </div>
         </div>
 
         <!-- Blocked IPs -->
         <div class="section">
             <h2>&#128683; Blocked IPs</h2>
 
-            <!-- Manual block form -->
+            <!-- Manual block form (admins only) -->
+            {% if is_admin %}
             <form method="POST" action="/block" class="inline-form confirm-form"
                   data-confirm-message="Block this IP at the Windows Firewall? All inbound traffic from it will be dropped."
                   data-confirm-title="Block IP address" data-confirm-ok="Block" data-confirm-danger="true">
@@ -157,6 +154,7 @@
                 <input type="text" name="reason" placeholder="Reason (optional)" class="form-input">
                 <button type="submit" class="btn-add">Block IP</button>
             </form>
+            {% endif %}
 
             <div id="blockedSection">
             {% if blocked %}
@@ -171,7 +169,7 @@
                         <th>VirusTotal</th>
                         <th>Reason</th>
                         <th>Blocked At</th>
-                        <th>Action</th>
+                        {% if is_admin %}<th>Action</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -190,6 +188,7 @@
                         <td class="vt-cell"><button class="btn-sm" onclick="vtIp('{{ ip.ip_address }}', this)">VT</button></td>
                         <td>{{ ip.reason }}</td>
                         <td>{{ ip.blocked_at }}</td>
+                        {% if is_admin %}
                         <td>
                             <form method="POST" action="/unblock/{{ ip.ip_address }}" class="confirm-form"
                                   data-confirm-message="Unblock {{ ip.ip_address }}? It will be able to attempt logins again."
@@ -198,6 +197,7 @@
                                 <button type="submit" class="btn-unblock">Unblock</button>
                             </form>
                         </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -206,7 +206,10 @@
             <p class="empty">No IPs currently blocked.</p>
             {% endif %}
             </div>
-            <a href="/list/blocked" target="_blank" class="btn-viewall">View all blocked IPs ({{ stats.total_blocked }}) &rarr;</a>
+            <div class="table-actions">
+                <a href="/list/blocked" target="_blank" class="btn-viewall">View all blocked IPs ({{ stats.total_blocked }}) &rarr;</a>
+                <a href="/export/blocked.csv" class="btn-export">&#11015; Export CSV</a>
+            </div>
         </div>
 
         <!-- Recent Failed Logins -->
@@ -225,7 +228,7 @@
                         <th>Username</th>
                         <th>Domain</th>
                         <th>Sub Status</th>
-                        <th>Action</th>
+                        {% if is_admin %}<th>Action</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -244,6 +247,7 @@
                         <td>{{ event.username }}</td>
                         <td>{{ event.domain }}</td>
                         <td><code>{{ event.sub_status }}</code></td>
+                        {% if is_admin %}
                         <td>
                             <form method="POST" action="/block" class="confirm-form"
                                   data-confirm-message="Block {{ event.source_ip }} at the Windows Firewall? All inbound traffic from it will be dropped."
@@ -254,6 +258,7 @@
                                 <button type="submit" class="btn-remove">Block</button>
                             </form>
                         </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -262,7 +267,10 @@
             <p class="empty">No failed login events recorded yet.</p>
             {% endif %}
             </div>
-            <a href="/list/events" target="_blank" class="btn-viewall">View all failed logins ({{ stats.total_failed_logins }}) &rarr;</a>
+            <div class="table-actions">
+                <a href="/list/events" target="_blank" class="btn-viewall">View all failed logins ({{ stats.total_failed_logins }}) &rarr;</a>
+                <a href="/export/events.csv" class="btn-export">&#11015; Export CSV</a>
+            </div>
         </div>
 
         <footer>

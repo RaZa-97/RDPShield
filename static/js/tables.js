@@ -30,6 +30,10 @@ function setNum(id, v) { const el = document.getElementById(id); if (el) el.text
 const NEXT_URL = (typeof window !== 'undefined')
     ? window.location.pathname + window.location.search : '/';
 
+// Admin-only action buttons (block/unblock) are hidden for guests, who get
+// view + CSV export only. window.IS_ADMIN is set by the shared top bar.
+function canAdmin() { return typeof window !== 'undefined' && window.IS_ADMIN === true; }
+
 // VirusTotal IP reputation: cached client-side so a looked-up result survives
 // the dashboard's 10s table refresh (and doesn't burn extra VT quota).
 const vtCache = {};
@@ -76,8 +80,17 @@ function buildAlerts(rows) {
 
 function buildBlocked(rows) {
     if (!rows.length) return '<p class="empty">No IPs currently blocked.</p>';
-    let h = '<table><thead><tr><th>IP Address</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>VirusTotal</th><th>Reason</th><th>Blocked At</th><th>Action</th></tr></thead><tbody>';
+    const admin = canAdmin();
+    let h = '<table><thead><tr><th>IP Address</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>VirusTotal</th><th>Reason</th><th>Blocked At</th>'
+        + (admin ? '<th>Action</th>' : '') + '</tr></thead><tbody>';
     for (const ip of rows) {
+        const action = admin
+            ? '<td><form method="POST" action="/unblock/' + encodeURIComponent(ip.ip_address) + '" class="confirm-form"'
+              + ' data-confirm-message="Unblock ' + esc(ip.ip_address) + '? It will be able to attempt logins again."'
+              + ' data-confirm-title="Unblock IP address" data-confirm-ok="Unblock" style="display:inline;">'
+              + '<input type="hidden" name="next" value="' + esc(NEXT_URL) + '">'
+              + '<button type="submit" class="btn-unblock">Unblock</button></form></td>'
+            : '';
         h += '<tr><td class="ip">' + esc(ip.ip_address) + '</td>'
             + '<td><strong>' + (ip.attempts != null ? ip.attempts : 0) + '</strong></td>'
             + '<td>' + esc(ip.country || '—') + '</td>'
@@ -86,19 +99,26 @@ function buildBlocked(rows) {
             + '<td class="vt-cell">' + vtCellHtml(ip.ip_address) + '</td>'
             + '<td>' + esc(ip.reason || '') + '</td>'
             + '<td>' + esc(ip.blocked_at || '') + '</td>'
-            + '<td><form method="POST" action="/unblock/' + encodeURIComponent(ip.ip_address) + '" class="confirm-form"'
-            + ' data-confirm-message="Unblock ' + esc(ip.ip_address) + '? It will be able to attempt logins again."'
-            + ' data-confirm-title="Unblock IP address" data-confirm-ok="Unblock" style="display:inline;">'
-            + '<input type="hidden" name="next" value="' + esc(NEXT_URL) + '">'
-            + '<button type="submit" class="btn-unblock">Unblock</button></form></td></tr>';
+            + action + '</tr>';
     }
     return h + '</tbody></table>';
 }
 
 function buildRecent(rows) {
     if (!rows.length) return '<p class="empty">No failed login events recorded yet.</p>';
-    let h = '<table><thead><tr><th>Time</th><th>Source IP</th><th>Country</th><th>ISP</th><th>Abuse Score</th><th>Username</th><th>Domain</th><th>Sub Status</th><th>Action</th></tr></thead><tbody>';
+    const admin = canAdmin();
+    let h = '<table><thead><tr><th>Time</th><th>Source IP</th><th>Country</th><th>ISP</th><th>Abuse Score</th><th>Username</th><th>Domain</th><th>Sub Status</th>'
+        + (admin ? '<th>Action</th>' : '') + '</tr></thead><tbody>';
     for (const e of rows) {
+        const action = admin
+            ? '<td><form method="POST" action="/block" class="confirm-form"'
+              + ' data-confirm-message="Block ' + esc(e.source_ip) + ' at the Windows Firewall? All inbound traffic from it will be dropped."'
+              + ' data-confirm-title="Block IP address" data-confirm-ok="Block" data-confirm-danger="true" style="display:inline;">'
+              + '<input type="hidden" name="ip_address" value="' + esc(e.source_ip) + '">'
+              + '<input type="hidden" name="reason" value="Manually blocked from failed-login list">'
+              + '<input type="hidden" name="next" value="' + esc(NEXT_URL) + '">'
+              + '<button type="submit" class="btn-remove">Block</button></form></td>'
+            : '';
         h += '<tr><td>' + esc((e.timestamp || '').slice(0, 19)) + '</td>'
             + '<td class="ip">' + esc(e.source_ip) + '</td>'
             + '<td>' + esc(e.geo_country || '—') + '</td>'
@@ -107,13 +127,7 @@ function buildRecent(rows) {
             + '<td>' + esc(e.username || '') + '</td>'
             + '<td>' + esc(e.domain || '') + '</td>'
             + '<td><code>' + esc(e.sub_status || '') + '</code></td>'
-            + '<td><form method="POST" action="/block" class="confirm-form"'
-            + ' data-confirm-message="Block ' + esc(e.source_ip) + ' at the Windows Firewall? All inbound traffic from it will be dropped."'
-            + ' data-confirm-title="Block IP address" data-confirm-ok="Block" data-confirm-danger="true" style="display:inline;">'
-            + '<input type="hidden" name="ip_address" value="' + esc(e.source_ip) + '">'
-            + '<input type="hidden" name="reason" value="Manually blocked from failed-login list">'
-            + '<input type="hidden" name="next" value="' + esc(NEXT_URL) + '">'
-            + '<button type="submit" class="btn-remove">Block</button></form></td></tr>';
+            + action + '</tr>';
     }
     return h + '</tbody></table>';
 }
@@ -126,7 +140,7 @@ function buildGeoEvents(rows) {
     for (const e of rows) {
         const blocked = e.action === 'blocked';
         let manage = '&mdash;';
-        if (e.is_blocked) {
+        if (e.is_blocked && canAdmin()) {
             manage = '<form method="POST" action="/unblock/' + encodeURIComponent(e.source_ip) + '" class="confirm-form"'
                 + ' data-confirm-message="Unblock ' + esc(e.source_ip) + '? It will be able to connect again."'
                 + ' data-confirm-title="Unblock IP address" data-confirm-ok="Unblock" style="display:inline;">'
@@ -234,7 +248,12 @@ function initListPage(key, apiUrl) {
         });
     }
 
-    if (search) search.addEventListener('input', apply);
+    if (search) {
+        search.addEventListener('input', apply);
+        // Prefill from a ?q= passed in by the global top-bar search.
+        const q = new URLSearchParams(window.location.search).get('q');
+        if (q) search.value = q;
+    }
     fetch(apiUrl)
         .then(r => r.json())
         .then(d => { ALL = Array.isArray(d) ? d : (d.history || d.rows || []); apply(); })

@@ -19,6 +19,7 @@ from flask import Blueprint, render_template, jsonify, request
 import yara_scheduler
 import database
 import virustotal
+import auth
 from config import YARA_QUARANTINE_DIR
 
 yara_bp = Blueprint("yara", __name__)
@@ -30,6 +31,7 @@ def yara_dashboard():
 
 
 @yara_bp.route("/yara/scan", methods=["POST"])
+@auth.admin_required
 def yara_scan():
     # Disk-only manual scan: fast and accurate.
     started = yara_scheduler.trigger_scan_async("manual", scan_memory=False)
@@ -40,6 +42,7 @@ def yara_scan():
 
 
 @yara_bp.route("/yara/scan_memory", methods=["POST"])
+@auth.admin_required
 def yara_scan_memory():
     # Full memory + disk scan: deeper, slower, reviewed on the dashboard.
     # Never sends SMS (handled by the scheduler's disk-only SMS policy).
@@ -90,6 +93,7 @@ def yara_vt_ip(ip):
 # =========================================================================
 
 @yara_bp.route("/yara/finding/action", methods=["POST"])
+@auth.admin_required
 def yara_finding_action():
     """
     Act on a YARA finding. Updates a status instead of deleting the row, and

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield — Users</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        {% with active='users' %}{% include '_topbar.html' %}{% endwith %}
+
+        <header>
+            <div>
+                <h1>User Management</h1>
+                <p class="subtitle">Admins have full control; guests can view &amp; export only.</p>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}<div class="auth-error" style="margin-bottom:18px;">{{ messages[0] }}</div>{% endif %}
+        {% endwith %}
+
+        <div class="section">
+            <h2>&#10133; Add User</h2>
+            <p class="section-desc">New users set up their authenticator app the first time they sign in.</p>
+            <form method="POST" action="/users/add" class="inline-form">
+                <input type="text" name="username" placeholder="Username" class="form-input" required autocomplete="off">
+                <input type="password" name="password" placeholder="Initial password" class="form-input" required autocomplete="new-password">
+                <select name="role" class="form-input">
+                    <option value="guest">Guest (view + export)</option>
+                    <option value="admin">Admin (full control)</option>
+                </select>
+                <button type="submit" class="btn-add">Add User</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>&#128100; Accounts</h2>
+            <table>
+                <thead>
+                    <tr><th>Username</th><th>Role</th><th>MFA</th><th>Created</th><th>Last Login</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr>
+                        <td><strong>{{ u.username }}</strong>{% if u.id == current_user.id %} <span class="muted">(you)</span>{% endif %}</td>
+                        <td>
+                            {% if u.role == 'admin' %}<span class="badge badge-manual_block">ADMIN</span>
+                            {% else %}<span class="badge badge-geo-allowed">GUEST</span>{% endif %}
+                        </td>
+                        <td>{% if u.mfa_enabled %}<span class="score-low">enrolled</span>{% else %}<span class="score-medium">pending</span>{% endif %}</td>
+                        <td>{{ u.created_at }}</td>
+                        <td>{{ u.last_login or '—' }}</td>
+                        <td>
+                            <form method="POST" action="/users/reset_mfa/{{ u.id }}" class="confirm-form"
+                                  data-confirm-message="Reset MFA for {{ u.username }}? They'll re-enroll their authenticator on next login."
+                                  data-confirm-title="Reset MFA" data-confirm-ok="Reset MFA" style="display:inline;">
+                                <button type="submit" class="btn-sm btn-ig">Reset MFA</button>
+                            </form>
+                            {% if u.id != current_user.id %}
+                            <form method="POST" action="/users/delete/{{ u.id }}" class="confirm-form"
+                                  data-confirm-message="Delete user {{ u.username }}? This cannot be undone."
+                                  data-confirm-title="Delete user" data-confirm-ok="Delete" data-confirm-danger="true" style="display:inline;">
+                                <button type="submit" class="btn-remove">Delete</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <footer><p>RDPShield v3.3 | User Management</p></footer>
+    </div>
+
+    <div class="modal-overlay" id="confirmModalOverlay">
+        <div class="modal-box">
+            <h3 id="confirmModalTitle">Please confirm</h3>
+            <p id="confirmModalMessage"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+                <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+</body>
+</html>
