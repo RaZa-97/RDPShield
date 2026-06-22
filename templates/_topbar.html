@@ -12,11 +12,6 @@
         RDPShield
     </a>
 
-    <form class="topbar-search" onsubmit="return globalSearch(event)">
-        <span class="search-icon">&#128269;</span>
-        <input type="text" id="globalSearchInput" placeholder="Search IP, country, alert type…" autocomplete="off">
-    </form>
-
     <div class="topbar-right">
         <span class="live-pill"><span class="live-dot"></span>LIVE</span>
         <span class="topbar-clock" id="topbarClock">--:--:-- UTC</span>
@@ -41,14 +36,6 @@
 </div>
 
 <script>
-    // Global search -> open the alerts full-list filtered by the query.
-    function globalSearch(e) {
-        e.preventDefault();
-        const q = document.getElementById('globalSearchInput').value.trim();
-        window.open('/list/alerts' + (q ? '?q=' + encodeURIComponent(q) : ''), '_blank');
-        return false;
-    }
-
     // UTC clock + live "active" session timer (since login).
     (function () {
         const clock = document.getElementById('topbarClock');

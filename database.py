@@ -1195,6 +1195,18 @@ def list_users():
     return rows
 
 
+def get_root_user():
+    """The root admin (is_root=1), or the earliest admin as a fallback."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE is_root = 1 ORDER BY id ASC LIMIT 1")
+    row = c.fetchone()
+    if not row:
+        c.execute("SELECT * FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1")
+        row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def get_user_by_phone(phone):
     conn = get_connection(); c = conn.cursor()
     c.execute("SELECT * FROM users WHERE phone = ?", (phone,))

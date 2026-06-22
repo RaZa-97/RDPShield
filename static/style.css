@@ -1148,6 +1148,21 @@ footer {
     padding: 10px 14px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 8px;
 }
 .auth-foot { margin-top: 22px; font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+
+/* Flash messages (success = green, error = red) */
+.flash {
+    padding: 11px 16px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 18px;
+}
+.flash-success, .flash-message {
+    background: rgba(22, 163, 74, 0.10);
+    border: 1px solid rgba(22, 163, 74, 0.30);
+    color: #15803d;
+}
+.flash-error {
+    background: rgba(220, 38, 38, 0.08);
+    border: 1px solid rgba(220, 38, 38, 0.25);
+    color: var(--critical-dark);
+}
 .auth-links { margin-top: 18px; }
 .auth-back { color: var(--brand); text-decoration: none; font-weight: 600; font-size: 0.88rem; }
 
@@ -1205,7 +1220,7 @@ footer {
     width: 100%; font-size: 0.9rem; color: var(--text);
     font-family: 'Consolas', 'Courier New', monospace;
 }
-.topbar-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.topbar-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; margin-left: auto; }
 .topbar-clock {
     font-family: 'Consolas', monospace; font-size: 0.82rem;
     color: var(--muted); white-space: nowrap;

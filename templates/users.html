@@ -18,8 +18,10 @@
             </div>
         </header>
 
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}<div class="auth-error" style="margin-bottom:18px;">{{ messages[0] }}</div>{% endif %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for category, msg in messages %}
+            <div class="flash flash-{{ category }}">{{ msg }}</div>
+          {% endfor %}
         {% endwith %}
 
         <div class="section">

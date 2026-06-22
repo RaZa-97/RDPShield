@@ -20,6 +20,7 @@ Access: http://SERVER_IP:5000
 import csv
 import io
 import random
+import re
 import time
 from datetime import datetime
 
@@ -63,10 +64,11 @@ from database import (
     set_user_disabled,
     update_user_phone,
     update_user_password,
+    get_root_user,
 )
 from firewall import unblock_ip, block_ip
 from alerts import process_alert_enrichment, send_sms_to
-from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG
+from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG, ALERT_TO_NUMBER
 from countries import COUNTRY_NAMES
 import auth
 import yara_scheduler
@@ -92,12 +94,28 @@ PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "forgot", "reset", "static"}
 @app.before_request
 def require_login():
     """Global gate: every page/API needs a logged-in session except the
-    auth flow and static assets. Defence-in-depth on top of per-route
-    admin checks, so no view can accidentally leak data unauthenticated."""
+    auth flow and static assets. Also enforces a 1-hour idle timeout and
+    refreshes the per-user 'last active' marker used to spot concurrent
+    suspicious logins."""
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
         return
-    if not session.get("user_id"):
+    uid = session.get("user_id")
+    if not uid:
         return redirect(url_for("login", next=request.path))
+
+    now = time.time()
+    last = session.get("last_active", now)
+    if now - last > IDLE_TIMEOUT:
+        _ACTIVE_USERS.pop(uid, None)
+        session.clear()
+        return redirect(url_for("login", timeout=1))
+
+    # Background polling (the dashboard's 10s AJAX refresh, YARA status) must
+    # NOT count as user activity, or an idle-but-open tab would never time out.
+    passive = request.path.startswith("/api/") or request.path.startswith("/yara/status")
+    if not passive:
+        session["last_active"] = now
+        _ACTIVE_USERS[uid] = now
 
 
 @app.context_processor
@@ -130,6 +148,76 @@ def _seed_default_admin():
 
 
 # =========================================================================
+# SESSION SECURITY: idle timeout + suspicious-login defence
+# =========================================================================
+
+IDLE_TIMEOUT = 3600        # auto-logout after 1h of inactivity
+CONCURRENT_WINDOW = 600    # "still active" = activity within the last 10 min
+FAILED_LOGIN_LIMIT = 5     # wrong passwords before the account is locked
+
+# In-memory, single-process state.
+_FAILED_LOGINS = {}        # username -> consecutive wrong-password count
+_ACTIVE_USERS = {}         # user_id  -> last-activity epoch seconds
+
+
+def _normalize_phone(p):
+    """Notify.lk wants a bare international number (e.g. 94771234567).
+    Accepts 0XXXXXXXXX, +94…, spaces/dashes, or a 9-digit local number."""
+    digits = re.sub(r"\D", "", p or "")
+    if not digits:
+        return ""
+    if digits.startswith("94"):
+        return digits
+    if digits.startswith("0"):
+        return "94" + digits[1:]
+    if len(digits) == 9:
+        return "94" + digits
+    return digits
+
+
+def _root_phone():
+    root = get_root_user()
+    num = (root and root.get("phone")) or ALERT_TO_NUMBER
+    return _normalize_phone(num) if num else None
+
+
+def _notify_root(message):
+    num = _root_phone()
+    if num:
+        ok = send_sms_to(num, message[:300])
+        print(f"[SECURITY] Root alert SMS to {num} ok={ok}")
+    else:
+        print("[SECURITY] No root phone / ALERT_TO_NUMBER configured; SMS skipped.")
+
+
+def _handle_suspicious(user, reason):
+    """Lock the account (except the root admin, to avoid permanent lockout)
+    and immediately SMS the root admin. Admin/root targets get a stronger
+    'breach attempt' warning."""
+    name = user["username"]
+    _FAILED_LOGINS.pop(name, None)
+    if user.get("is_root"):
+        _notify_root(f"RDPShield WARNING: breach attempt on ROOT admin '{name}' "
+                     f"({reason}). Account NOT locked to avoid lockout — investigate now.")
+        print(f"[SECURITY] ROOT '{name}' suspicious ({reason}); warned, not locked.")
+        return False  # root is never auto-locked
+    set_user_disabled(user["id"], True)
+    _ACTIVE_USERS.pop(user["id"], None)
+    if user.get("role") == "admin":
+        _notify_root(f"RDPShield WARNING: breach attempt on ADMIN account '{name}' "
+                     f"({reason}). The account has been LOCKED.")
+    else:
+        _notify_root(f"RDPShield: account '{name}' was LOCKED after {reason}.")
+    print(f"[SECURITY] Locked '{name}' ({reason}); root notified.")
+    return True
+
+
+def _is_user_active(user_id):
+    ts = _ACTIVE_USERS.get(user_id)
+    return ts is not None and (time.time() - ts) < CONCURRENT_WINDOW
+
+
+# =========================================================================
 # AUTH ROUTES: login -> MFA (enroll/verify) -> session
 # =========================================================================
 
@@ -143,11 +231,37 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         user = get_user_by_username(username)
+
+        # Wrong credentials -> count failures; lock + alert root past the limit.
         if not user or not auth.verify_password(user["password_hash"], password):
+            if user:
+                _FAILED_LOGINS[username] = _FAILED_LOGINS.get(username, 0) + 1
+                if _FAILED_LOGINS[username] >= FAILED_LOGIN_LIMIT and not user.get("disabled"):
+                    locked = _handle_suspicious(
+                        user, f"{FAILED_LOGIN_LIMIT}+ failed password attempts")
+                    if locked:
+                        return render_template(
+                            "login.html",
+                            error="Too many failed attempts — this account has been "
+                                  "locked and an administrator alerted.")
             return render_template("login.html", error="Invalid username or password.")
+
+        # Correct password -> clear the failure counter.
+        _FAILED_LOGINS.pop(username, None)
+
         if user.get("disabled"):
             return render_template("login.html",
                                    error="This account is disabled. Contact an administrator.")
+
+        # Suspicious concurrent login: a valid password while the account is
+        # already actively in use. Locks the account (root is only warned).
+        if _is_user_active(user["id"]):
+            locked = _handle_suspicious(user, "login while an existing session was active")
+            if locked:
+                return render_template(
+                    "login.html",
+                    error="A concurrent login was detected while this account was "
+                          "active. The account has been locked and an administrator alerted.")
 
         # Password OK -> hand off to the MFA step. Stash a *pending* identity
         # only; the full session is not granted until TOTP succeeds.
@@ -159,7 +273,8 @@ def login():
         session["mfa_enroll"] = not bool(user["totp_secret"])
         return redirect(url_for("mfa"))
 
-    return render_template("login.html", error=None)
+    info = "You were signed out after 1 hour of inactivity." if request.args.get("timeout") else None
+    return render_template("login.html", error=None, info=info)
 
 
 @app.route("/mfa", methods=["GET", "POST"])
@@ -207,6 +322,8 @@ def mfa():
         session["role"] = user["role"]
         session["is_root"] = bool(user["is_root"])
         session["login_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
+        session["last_active"] = time.time()
+        _ACTIVE_USERS[user["id"]] = time.time()
         return redirect(url_for("index"))
 
     return render_template(
@@ -218,6 +335,7 @@ def mfa():
 
 @app.route("/logout")
 def logout():
+    _ACTIVE_USERS.pop(session.get("user_id"), None)
     session.clear()
     return redirect(url_for("login"))
 
@@ -277,11 +395,12 @@ def forgot():
             _RESET_CODES[username] = {
                 "code": code, "expires": time.time() + _RESET_TTL, "tries": 0,
             }
-            send_sms_to(user["phone"],
-                        f"RDPShield password reset code: {code} "
-                        f"(valid 10 min). If you didn't request this, ignore it.")
-            masked = _mask_phone(user["phone"])
-            print(f"[AUTH] Password reset code sent for {username}")
+            number = _normalize_phone(user["phone"])
+            ok = send_sms_to(number,
+                             f"RDPShield password reset code: {code} "
+                             f"(valid 10 min). If you didn't request this, ignore it.")
+            masked = _mask_phone(number)
+            print(f"[AUTH] Reset code SMS for {username} to {number} ok={ok}")
         # Neutral handoff regardless, to avoid leaking which accounts exist.
         session["reset_user"] = username
         return render_template("reset.html", error=None, sent=True, masked=masked)
@@ -322,7 +441,7 @@ def reset():
             print(f"[AUTH] Password reset completed for {username}")
         _RESET_CODES.pop(username, None)
         session.pop("reset_user", None)
-        flash("Password updated. Sign in with your new password.")
+        flash("Password updated. Sign in with your new password.", "success")
         return redirect(url_for("login"))
 
     return render_template("reset.html", sent=True, masked="", error=None)
@@ -343,7 +462,7 @@ def users_page():
 def users_add():
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
-    phone = request.form.get("phone", "").strip() or None
+    phone = _normalize_phone(request.form.get("phone", "")) or None
     role = request.form.get("role", "guest")
     if role not in ("admin", "guest"):
         role = "guest"
@@ -351,7 +470,7 @@ def users_add():
         ok = create_user(username, auth.hash_password(password), role=role,
                          phone=phone)
         if not ok:
-            flash(f"Username '{username}' already exists.")
+            flash(f"Username '{username}' already exists.", "error")
         else:
             print(f"[AUTH] Created {role} user: {username}")
     return redirect(url_for("users_page"))
@@ -371,11 +490,11 @@ def users_delete(user_id):
     if not target:
         pass
     elif user_id == session.get("user_id"):
-        flash("You can't delete your own account while signed in.")
+        flash("You can't delete your own account while signed in.", "error")
     elif target.get("is_root") and not _i_am_root():
-        flash("The root admin can't be deleted by a secondary admin.")
+        flash("The root admin can't be deleted by a secondary admin.", "error")
     elif target["role"] == "admin" and count_admins() <= 1:
-        flash("Can't delete the last remaining admin.")
+        flash("Can't delete the last remaining admin.", "error")
     else:
         delete_user(user_id)
         print(f"[AUTH] Deleted user: {target['username']}")
@@ -401,11 +520,11 @@ def users_update(user_id):
     if not target:
         return redirect(url_for("users_page"))
     new_pw = request.form.get("password", "")
-    phone = request.form.get("phone", "").strip()
+    phone = _normalize_phone(request.form.get("phone", ""))
     changed = []
     if new_pw:
         if len(new_pw) < 4:
-            flash("Password must be at least 4 characters.")
+            flash("Password must be at least 4 characters.", "error")
             return redirect(url_for("users_page"))
         update_user_password(user_id, auth.hash_password(new_pw))
         changed.append("password")
@@ -414,7 +533,7 @@ def users_update(user_id):
         changed.append("phone")
     if changed:
         print(f"[AUTH] Updated {target['username']}: {', '.join(changed)}")
-        flash(f"Updated {target['username']} ({', '.join(changed)}).")
+        flash(f"Updated {target['username']} ({', '.join(changed)}).", "success")
     return redirect(url_for("users_page"))
 
 
@@ -425,11 +544,11 @@ def users_disable(user_id):
     if not target:
         pass
     elif user_id == session.get("user_id"):
-        flash("You can't disable your own account.")
+        flash("You can't disable your own account.", "error")
     elif target.get("is_root") and not _i_am_root():
-        flash("The root admin can't be disabled by a secondary admin.")
+        flash("The root admin can't be disabled by a secondary admin.", "error")
     elif target["role"] == "admin" and count_admins() <= 1:
-        flash("Can't disable the last remaining admin.")
+        flash("Can't disable the last remaining admin.", "error")
     else:
         set_user_disabled(user_id, True)
         print(f"[AUTH] Disabled user: {target['username']}")

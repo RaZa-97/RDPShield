@@ -21,6 +21,12 @@
         <h1 class="auth-h1">Sign in</h1>
         <p class="auth-sub">Access the RDPShield operations console.</p>
 
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for category, msg in messages %}
+            <div class="flash flash-{{ category }}">{{ msg }}</div>
+          {% endfor %}
+        {% endwith %}
+        {% if info %}<div class="flash flash-message">{{ info }}</div>{% endif %}
         {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
 
         <form method="POST" action="/login" class="auth-form">
