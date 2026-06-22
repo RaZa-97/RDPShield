@@ -65,12 +65,26 @@ from database import (
     update_user_phone,
     update_user_password,
     get_root_user,
+    set_user_theme,
+    # Settings / recipients / audit / retention
+    create_settings_tables,
+    get_setting,
+    set_setting,
+    get_all_settings,
+    list_alert_recipients,
+    add_alert_recipient,
+    update_alert_recipient,
+    delete_alert_recipient,
+    add_audit,
+    get_audit,
+    purge_old_data,
 )
 from firewall import unblock_ip, block_ip
 from alerts import process_alert_enrichment, send_sms_to
-from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG, ALERT_TO_NUMBER
+from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG
 from countries import COUNTRY_NAMES
 import auth
+import settings
 import yara_scheduler
 
 app = Flask(__name__)
@@ -80,7 +94,17 @@ from database import create_yara_tables, create_users_table
 app.register_blueprint(yara_bp)
 create_yara_tables()
 create_users_table()
+create_settings_tables()
 app.secret_key = "rdpshield_secret_key"  # Needed for sessions + flash messages
+
+
+def _audit(action, detail=""):
+    """Record an admin/security action in the audit trail."""
+    try:
+        add_audit(session.get("username", "?"), action, detail,
+                  request.remote_addr or "")
+    except Exception as e:
+        print(f"[AUDIT] failed to record '{action}': {e}")
 
 
 # =========================================================================
@@ -130,6 +154,8 @@ def inject_user():
         } if session.get("user_id") else None,
         "is_admin": session.get("role") == "admin",
         "login_at": session.get("login_at"),
+        # Per-user theme; dark futuristic is the default (also for pre-login pages).
+        "theme": session.get("theme", "dark"),
     }
 
 
@@ -175,19 +201,22 @@ def _normalize_phone(p):
     return digits
 
 
-def _root_phone():
-    root = get_root_user()
-    num = (root and root.get("phone")) or ALERT_TO_NUMBER
-    return _normalize_phone(num) if num else None
-
-
 def _notify_root(message):
-    num = _root_phone()
-    if num:
+    """Send a security/breach alert to the root admin AND every active alert
+    recipient (Settings). Falls back to config.ALERT_TO_NUMBER."""
+    numbers = set()
+    root = get_root_user()
+    if root and root.get("phone"):
+        numbers.add(_normalize_phone(root["phone"]))
+    for n in settings.alert_numbers():
+        numbers.add(_normalize_phone(n))
+    numbers.discard("")
+    if not numbers:
+        print("[SECURITY] No alert recipients / root phone configured; SMS skipped.")
+        return
+    for num in numbers:
         ok = send_sms_to(num, message[:300])
-        print(f"[SECURITY] Root alert SMS to {num} ok={ok}")
-    else:
-        print("[SECURITY] No root phone / ALERT_TO_NUMBER configured; SMS skipped.")
+        print(f"[SECURITY] Alert SMS to {num} ok={ok}")
 
 
 def _handle_suspicious(user, reason):
@@ -196,6 +225,7 @@ def _handle_suspicious(user, reason):
     'breach attempt' warning."""
     name = user["username"]
     _FAILED_LOGINS.pop(name, None)
+    add_audit(name, "security.suspicious", reason, request.remote_addr or "")
     if user.get("is_root"):
         _notify_root(f"RDPShield WARNING: breach attempt on ROOT admin '{name}' "
                      f"({reason}). Account NOT locked to avoid lockout — investigate now.")
@@ -321,9 +351,11 @@ def mfa():
         session["username"] = user["username"]
         session["role"] = user["role"]
         session["is_root"] = bool(user["is_root"])
+        session["theme"] = user["theme"] if user["theme"] in ("dark", "light") else "dark"
         session["login_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
         session["last_active"] = time.time()
         _ACTIVE_USERS[user["id"]] = time.time()
+        _audit("login", "signed in")
         return redirect(url_for("index"))
 
     return render_template(
@@ -335,6 +367,8 @@ def mfa():
 
 @app.route("/logout")
 def logout():
+    if session.get("user_id"):
+        _audit("logout", "signed out")
     _ACTIVE_USERS.pop(session.get("user_id"), None)
     session.clear()
     return redirect(url_for("login"))
@@ -473,6 +507,7 @@ def users_add():
             flash(f"Username '{username}' already exists.", "error")
         else:
             print(f"[AUTH] Created {role} user: {username}")
+            _audit("user.add", f"{username} ({role})")
     return redirect(url_for("users_page"))
 
 
@@ -497,6 +532,7 @@ def users_delete(user_id):
         flash("Can't delete the last remaining admin.", "error")
     else:
         delete_user(user_id)
+        _audit("user.delete", target["username"])
         print(f"[AUTH] Deleted user: {target['username']}")
     return redirect(url_for("users_page"))
 
@@ -508,6 +544,7 @@ def users_reset_mfa(user_id):
     target = get_user_by_id(user_id)
     if target:
         set_user_totp(user_id, None, enabled=0)
+        _audit("user.reset_mfa", target["username"])
         print(f"[AUTH] Reset MFA for user: {target['username']}")
     return redirect(url_for("users_page"))
 
@@ -532,6 +569,7 @@ def users_update(user_id):
         update_user_phone(user_id, phone or None)
         changed.append("phone")
     if changed:
+        _audit("user.update", f"{target['username']}: {', '.join(changed)}")
         print(f"[AUTH] Updated {target['username']}: {', '.join(changed)}")
         flash(f"Updated {target['username']} ({', '.join(changed)}).", "success")
     return redirect(url_for("users_page"))
@@ -551,6 +589,7 @@ def users_disable(user_id):
         flash("Can't disable the last remaining admin.", "error")
     else:
         set_user_disabled(user_id, True)
+        _audit("user.disable", target["username"])
         print(f"[AUTH] Disabled user: {target['username']}")
     return redirect(url_for("users_page"))
 
@@ -561,8 +600,166 @@ def users_enable(user_id):
     target = get_user_by_id(user_id)
     if target:
         set_user_disabled(user_id, False)
+        _audit("user.enable", target["username"])
         print(f"[AUTH] Enabled user: {target['username']}")
     return redirect(url_for("users_page"))
+
+
+# =========================================================================
+# THEME (per-user, any logged-in user)
+# =========================================================================
+
+@app.route("/theme/<mode>", methods=["POST"])
+@auth.login_required
+def set_theme(mode):
+    mode = "light" if mode == "light" else "dark"
+    set_user_theme(session.get("user_id"), mode)
+    session["theme"] = mode
+    return redirect(request.form.get("next") or url_for("index"))
+
+
+# =========================================================================
+# SETTINGS (admin only): API keys, alert recipients, SMS types,
+# data retention, audit log
+# =========================================================================
+
+# Masked display of a secret; never send the full value to the browser.
+def _mask_key(v):
+    if not v:
+        return ""
+    v = str(v)
+    return ("•" * max(0, len(v) - 4)) + v[-4:] if len(v) > 4 else "••••"
+
+
+@app.route("/settings")
+@auth.admin_required
+def settings_page():
+    st = get_all_settings()
+
+    def rotated(key):
+        return st.get(key, {}).get("updated_at")
+
+    keys = {
+        "virustotal": {"masked": _mask_key(settings.vt_api_key()),
+                       "rotated": rotated("vt_api_key")},
+        "abuseipdb":  {"masked": _mask_key(settings.abuseipdb_key()),
+                       "rotated": rotated("abuseipdb_api_key")},
+        "notify":     {"masked": _mask_key(settings.notify_api_key()),
+                       "user_id": settings.notify_user_id(),
+                       "sender_id": settings.notify_sender_id(),
+                       "rotated": rotated("notify_api_key")},
+    }
+    return render_template(
+        "settings.html",
+        keys=keys,
+        recipients=list_alert_recipients(),
+        all_sms_types=settings.ALL_SMS_TYPES,
+        active_sms_types=settings.sms_alert_types(),
+        retention_days=settings.retention_days(),
+        audit=get_audit(limit=100),
+    )
+
+
+@app.route("/settings/keys", methods=["POST"])
+@auth.admin_required
+def settings_keys():
+    """Rotate API keys. Only non-blank fields are written (blank = unchanged);
+    a literal '-' clears a key (revert to config.py)."""
+    mapping = {
+        "vt_api_key": "VirusTotal",
+        "abuseipdb_api_key": "AbuseIPDB",
+        "notify_api_key": "Notify.lk API key",
+        "notify_user_id": "Notify.lk user ID",
+        "notify_sender_id": "Notify.lk sender ID",
+    }
+    rotated = []
+    for field, label in mapping.items():
+        val = request.form.get(field, "").strip()
+        if not val:
+            continue
+        set_setting(field, "" if val == "-" else val)
+        rotated.append(label)
+    if rotated:
+        _audit("settings.keys", "rotated: " + ", ".join(rotated))
+        flash("Updated: " + ", ".join(rotated) + ".", "success")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/settings/recipients/add", methods=["POST"])
+@auth.admin_required
+def settings_recipient_add():
+    label = request.form.get("label", "").strip()
+    phone = _normalize_phone(request.form.get("phone", ""))
+    if phone:
+        add_alert_recipient(label, phone)
+        _audit("settings.recipient_add", f"{label or '(no label)'} {phone}")
+        flash(f"Added alert recipient {phone}.", "success")
+    else:
+        flash("Enter a valid phone number.", "error")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/settings/recipients/update/<int:rid>", methods=["POST"])
+@auth.admin_required
+def settings_recipient_update(rid):
+    label = request.form.get("label", "").strip()
+    phone = _normalize_phone(request.form.get("phone", ""))
+    active = bool(request.form.get("active"))
+    if phone:
+        update_alert_recipient(rid, label, phone, active)
+        _audit("settings.recipient_update", f"#{rid} {phone} active={active}")
+        flash("Recipient updated.", "success")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/settings/recipients/delete/<int:rid>", methods=["POST"])
+@auth.admin_required
+def settings_recipient_delete(rid):
+    delete_alert_recipient(rid)
+    _audit("settings.recipient_delete", f"#{rid}")
+    flash("Recipient removed.", "success")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/settings/sms_types", methods=["POST"])
+@auth.admin_required
+def settings_sms_types():
+    chosen = [t for t in settings.ALL_SMS_TYPES if request.form.get("type_" + t)]
+    settings.set_sms_alert_types(chosen)
+    _audit("settings.sms_types", ", ".join(chosen) or "(none)")
+    flash("SMS alert types saved.", "success")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/settings/retention", methods=["POST"])
+@auth.admin_required
+def settings_retention():
+    try:
+        days = max(0, int(request.form.get("retention_days", "0")))
+    except ValueError:
+        days = 0
+    set_setting("retention_days", str(days))
+    _audit("settings.retention", f"{days} days")
+    flash(f"Retention set to {days} days (0 = keep forever).", "success")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/settings/purge", methods=["POST"])
+@auth.admin_required
+def settings_purge():
+    try:
+        days = max(1, int(request.form.get("days", "0")))
+    except ValueError:
+        days = 0
+    if days:
+        counts = purge_old_data(days)
+        total = sum(counts.values())
+        _audit("settings.purge", f">{days}d removed {counts}")
+        flash(f"Purged {total} rows older than {days} days "
+              f"({counts}).", "success")
+    else:
+        flash("Enter a day count to purge.", "error")
+    return redirect(url_for("settings_page"))
 
 
 # =========================================================================
@@ -609,7 +806,11 @@ LIST_VIEWS = {
     "geo_events":       {"title": "Geolocation Event Log", "renderer": "geo",          "api": "/api/geo_events?category=geo&limit=2000",      "back": "/geo"},
     "whitelist_events": {"title": "Whitelist Event Log",   "renderer": "geo",          "api": "/api/geo_events?category=whitelist&limit=2000", "back": "/geo"},
     "yara_scans":       {"title": "Scan History",          "renderer": "yara_history", "api": "/api/yara_scans?limit=2000",                   "back": "/yara"},
+    "audit":            {"title": "Admin Audit Log",        "renderer": "audit",        "api": "/api/audit?limit=2000",                       "back": "/settings"},
 }
+
+# List views that require admin (sensitive data).
+ADMIN_LIST_VIEWS = {"audit"}
 
 
 @app.route("/list/<key>")
@@ -618,6 +819,8 @@ def list_view(key):
     cfg = LIST_VIEWS.get(key)
     if not cfg:
         return "Unknown list", 404
+    if key in ADMIN_LIST_VIEWS and session.get("role") != "admin":
+        return auth._deny()
     return render_template(
         "list.html",
         key=key,
@@ -672,6 +875,7 @@ def geo_set_mode():
     """
     mode = request.form.get("geo_mode", "allow_anywhere")
     set_geo_mode(mode)
+    _audit("geo.set_mode", mode)
     print(f"[DASHBOARD] Geo mode changed to: {mode}")
     return redirect(url_for("geo_settings"))
 
@@ -772,6 +976,12 @@ def api_yara_scans():
     return jsonify(get_yara_history(limit=_req_limit(200)))
 
 
+@app.route("/api/audit")
+@auth.admin_required
+def api_audit():
+    return jsonify(get_audit(limit=_req_limit(200)))
+
+
 @app.route("/api/geo_stats")
 def api_geo_stats():
     return jsonify(get_geo_stats())
@@ -784,6 +994,7 @@ def unblock(ip_address):
     from (the dashboard or the Advanced Security event logs)."""
     success = unblock_ip(ip_address)
     if success:
+        _audit("ip.unblock", ip_address)
         print(f"[DASHBOARD] Manually unblocked {ip_address}")
     return redirect(request.form.get("next") or url_for("index"))
 
@@ -817,6 +1028,7 @@ def block():
                 blocked=1,
                 sms_sent=0,
             )
+            _audit("ip.block", f"{ip} ({reason})")
             print(f"[DASHBOARD] Manually blocked {ip} ({reason})")
         else:
             print(f"[DASHBOARD] Could not block {ip} (whitelisted, already blocked, or disabled)")
@@ -848,6 +1060,10 @@ def _export_yara():
     return get_yara_history(limit=100000)
 
 
+def _export_audit():
+    return get_audit(limit=100000)
+
+
 EXPORT_VIEWS = {
     "alerts":           {"file": "rdpshield_alerts",          "fetch": _export_alerts,
                          "cols": ["timestamp", "alert_type", "source_ip", "geo_country", "geo_city", "abuse_score", "description", "blocked", "sms_sent"]},
@@ -861,6 +1077,8 @@ EXPORT_VIEWS = {
                          "cols": ["timestamp", "source_ip", "username", "country", "city", "isp", "abuse_score", "event_type", "action", "reason"]},
     "yara_scans":       {"file": "rdpshield_yara_scans",       "fetch": _export_yara,
                          "cols": ["id", "triggered_by", "started_at", "completed_at", "duration", "total_findings", "critical_findings", "max_severity", "error"]},
+    "audit":            {"file": "rdpshield_audit_log",        "fetch": _export_audit,
+                         "cols": ["timestamp", "username", "action", "detail", "ip"]},
 }
 
 
@@ -871,6 +1089,9 @@ def export_csv(key):
     cfg = EXPORT_VIEWS.get(key)
     if not cfg:
         return "Unknown export", 404
+    # The audit log is admin-only.
+    if key == "audit" and session.get("role") != "admin":
+        return auth._deny()
 
     rows = cfg["fetch"]()
     cols = cfg["cols"]

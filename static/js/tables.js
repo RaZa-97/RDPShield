@@ -182,12 +182,27 @@ function buildYaraHistory(rows) {
     return h + '</tbody></table>';
 }
 
+// Admin audit log (read-only).
+function buildAudit(rows) {
+    if (!rows.length) return '<p class="empty">No audit entries.</p>';
+    let h = '<table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th><th>IP</th></tr></thead><tbody>';
+    for (const a of rows) {
+        h += '<tr><td>' + esc((a.timestamp || '').slice(0, 19)) + '</td>'
+            + '<td><strong>' + esc(a.username) + '</strong></td>'
+            + '<td><span class="badge badge-manual_block">' + esc(a.action) + '</span></td>'
+            + '<td class="description">' + esc(a.detail || '') + '</td>'
+            + '<td class="mono">' + esc(a.ip || '') + '</td></tr>';
+    }
+    return h + '</tbody></table>';
+}
+
 const TABLE_RENDERERS = {
     alerts: buildAlerts,
     blocked: buildBlocked,
     recent: buildRecent,
     geo: buildGeoEvents,
     yara_history: buildYaraHistory,
+    audit: buildAudit,
 };
 
 // --- Standalone full-list page: search + client-side pagination ------------

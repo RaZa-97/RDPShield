@@ -16,11 +16,11 @@ automatic, to stay within quota.
 
 import requests
 
-from config import VIRUSTOTAL_API_KEY, VIRUSTOTAL_URL
+import settings  # DB-backed key (overrides config.py)
 
 
 def _enabled():
-    return bool(VIRUSTOTAL_API_KEY)
+    return bool(settings.vt_api_key())
 
 
 def _stats(attributes):
@@ -46,8 +46,8 @@ def _get(path):
         return None
     try:
         resp = requests.get(
-            f"{VIRUSTOTAL_URL}/{path}",
-            headers={"x-apikey": VIRUSTOTAL_API_KEY},
+            f"{settings.vt_url()}/{path}",
+            headers={"x-apikey": settings.vt_api_key()},
             timeout=15,
         )
         if resp.status_code == 200:

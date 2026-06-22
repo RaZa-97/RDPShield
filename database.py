@@ -1131,7 +1131,8 @@ def create_users_table():
     existing = {r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()}
     for col, ddl in (("disabled", "INTEGER DEFAULT 0"),
                      ("is_root", "INTEGER DEFAULT 0"),
-                     ("phone", "TEXT")):
+                     ("phone", "TEXT"),
+                     ("theme", "TEXT DEFAULT 'dark'")):
         if col not in existing:
             c.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
     # Ensure exactly one root admin exists: the earliest admin account.
@@ -1259,6 +1260,133 @@ def update_last_login(user_id, when):
     conn = get_connection(); c = conn.cursor()
     c.execute("UPDATE users SET last_login = ? WHERE id = ?", (when, user_id))
     conn.commit(); conn.close()
+
+
+def set_user_theme(user_id, theme):
+    if theme not in ("dark", "light"):
+        theme = "dark"
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE users SET theme = ? WHERE id = ?", (theme, user_id))
+    conn.commit(); conn.close()
+
+
+# =============================================================================
+# APP SETTINGS, ALERT RECIPIENTS, AUDIT LOG, DATA RETENTION (v3.4)
+# =============================================================================
+
+def create_settings_tables():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS alert_recipients (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            label      TEXT DEFAULT '',
+            phone      TEXT NOT NULL,
+            active     INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            username  TEXT,
+            action    TEXT,
+            detail    TEXT,
+            ip        TEXT
+        )""")
+    conn.commit(); conn.close()
+
+
+# --- key/value settings ---
+def get_setting(key):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = c.fetchone(); conn.close()
+    return row["value"] if row else None
+
+
+def set_setting(key, value):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    """, (key, value))
+    conn.commit(); conn.close()
+
+
+def get_all_settings():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT key, value, updated_at FROM settings")
+    rows = {r["key"]: {"value": r["value"], "updated_at": r["updated_at"]} for r in c.fetchall()}
+    conn.close()
+    return rows
+
+
+# --- alert recipients ---
+def list_alert_recipients(active_only=False):
+    conn = get_connection(); c = conn.cursor()
+    sql = "SELECT * FROM alert_recipients"
+    if active_only:
+        sql += " WHERE active = 1"
+    sql += " ORDER BY id ASC"
+    c.execute(sql)
+    rows = [dict(r) for r in c.fetchall()]; conn.close()
+    return rows
+
+
+def add_alert_recipient(label, phone):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("INSERT INTO alert_recipients (label, phone) VALUES (?, ?)", (label, phone))
+    conn.commit(); conn.close()
+
+
+def update_alert_recipient(rid, label, phone, active):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE alert_recipients SET label = ?, phone = ?, active = ? WHERE id = ?",
+              (label, phone, 1 if active else 0, rid))
+    conn.commit(); conn.close()
+
+
+def delete_alert_recipient(rid):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("DELETE FROM alert_recipients WHERE id = ?", (rid,))
+    conn.commit(); conn.close()
+
+
+# --- audit log ---
+def add_audit(username, action, detail="", ip=""):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("INSERT INTO audit_log (username, action, detail, ip) VALUES (?, ?, ?, ?)",
+              (username, action, detail, ip))
+    conn.commit(); conn.close()
+
+
+def get_audit(limit=200):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))
+    rows = [dict(r) for r in c.fetchall()]; conn.close()
+    return rows
+
+
+# --- data retention ---
+def purge_old_data(days):
+    """Delete failed_logins / alerts / geo_events older than `days`.
+    Returns a dict of deleted-row counts per table."""
+    conn = get_connection(); c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    counts = {}
+    for table, col in (("failed_logins", "timestamp"),
+                       ("alerts", "created_at"),
+                       ("geo_events", "timestamp")):
+        c.execute(f"DELETE FROM {table} WHERE {col} < ?", (cutoff,))
+        counts[table] = c.rowcount
+    conn.commit(); conn.close()
+    return counts
 
 
 # If this file is run directly, initialize the database

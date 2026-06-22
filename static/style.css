@@ -1309,3 +1309,127 @@ footer {
     min-width: 240px;
 }
 .row-edit-form .form-input { min-width: 0; width: 100%; }
+
+/* =========================================================================
+   NEW COMPONENTS: theme toggle, settings check-grid
+   ========================================================================= */
+.theme-toggle-form { display: inline; }
+.btn-theme {
+    background: var(--surface-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    width: 36px; height: 34px;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition: all 0.15s;
+}
+.btn-theme:hover { border-color: var(--brand); color: var(--brand); }
+.btn-current { outline: 2px solid var(--brand); }
+.check-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+}
+.check-item {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface-alt); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; cursor: pointer;
+}
+
+/* =========================================================================
+   DARK FUTURISTIC THEME  (data-theme="dark")
+   A cyber/SOC palette: deep navy surfaces, electric-blue brand, cyan accents,
+   and soft outer glows on panels/buttons. Driven by the same CSS variables the
+   light theme uses, so every component re-themes from these overrides.
+   ========================================================================= */
+[data-theme="dark"] {
+    --bg: #060912;
+    --surface: #0e1626;
+    --surface-alt: #0a1120;
+    --border: #1d2c49;
+    --text: #e8eefb;
+    --muted: #8a98b8;
+    --brand: #4f7cff;
+    --brand-dark: #7aa0ff;
+    --brand-light: rgba(79, 124, 255, 0.16);
+    --critical: #ff5a6a;
+    --critical-dark: #ff8089;
+    --high: #ff8a3d;
+    --medium: #f5b73d;
+    --low: #5aa2ff;
+    --ok: #2bd4a0;
+    --purple: #b07cff;
+    --shadow: 0 0 0 1px rgba(79, 124, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="dark"] body {
+    background:
+        radial-gradient(1100px 600px at 85% -15%, rgba(79, 124, 255, 0.12), transparent 60%),
+        radial-gradient(900px 500px at 0% 0%, rgba(43, 212, 160, 0.06), transparent 55%),
+        var(--bg);
+}
+
+/* Panels get a faint cyan edge-glow for the "futuristic" feel */
+[data-theme="dark"] .topbar,
+[data-theme="dark"] .subnav,
+[data-theme="dark"] .section,
+[data-theme="dark"] .panel,
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .chart-panel,
+[data-theme="dark"] .auth-card,
+[data-theme="dark"] .status-card {
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: var(--shadow);
+}
+
+/* Inputs / selects */
+[data-theme="dark"] .form-input,
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="password"],
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] select,
+[data-theme="dark"] textarea,
+[data-theme="dark"] .topbar-search,
+[data-theme="dark"] .mfa-code {
+    background: var(--surface-alt);
+    color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="dark"] .form-input::placeholder { color: #5d6b8a; }
+
+/* Tables */
+[data-theme="dark"] th { background: var(--surface-alt); color: var(--muted); }
+[data-theme="dark"] tr:hover td { background: rgba(79, 124, 255, 0.06); }
+[data-theme="dark"] code,
+[data-theme="dark"] .ip {
+    background: var(--brand-light);
+    color: var(--brand-dark);
+    border-color: var(--border);
+}
+
+/* Brand buttons keep white text + a subtle glow */
+[data-theme="dark"] .btn-apply,
+[data-theme="dark"] .btn-add {
+    box-shadow: 0 0 16px rgba(79, 124, 255, 0.35);
+}
+[data-theme="dark"] .btn-viewall { background: var(--brand-light); color: var(--brand-dark); }
+
+/* Auth pages */
+[data-theme="dark"] .auth-body {
+    background:
+        radial-gradient(1200px 600px at 70% -10%, rgba(79, 124, 255, 0.16), transparent 60%),
+        var(--bg);
+}
+[data-theme="dark"] .auth-card { box-shadow: 0 0 0 1px var(--border), 0 0 60px rgba(79, 124, 255, 0.10); }
+
+/* Nav active pill glow */
+[data-theme="dark"] .nav-link.active { box-shadow: 0 0 14px rgba(79, 124, 255, 0.45); }
+
+/* Live dot + pill */
+[data-theme="dark"] .live-pill { background: var(--surface-alt); }
+
+/* Chart gridlines hardcoded for light theme — soften on dark via canvas wrap bg */
+[data-theme="dark"] .chart-canvas-wrap { filter: none; }

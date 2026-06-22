@@ -16,6 +16,12 @@
         <span class="live-pill"><span class="live-dot"></span>LIVE</span>
         <span class="topbar-clock" id="topbarClock">--:--:-- UTC</span>
         {% if current_user %}
+        <form method="POST" action="/theme/{{ 'light' if theme == 'dark' else 'dark' }}" class="theme-toggle-form">
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <button type="submit" class="btn-theme" title="Switch to {{ 'light' if theme == 'dark' else 'dark' }} theme">
+                {{ '☀' if theme == 'dark' else '☾' }}
+            </button>
+        </form>
         <div class="user-chip" title="Signed in as {{ current_user.username }} ({{ current_user.role }})">
             <span class="user-avatar {% if is_admin %}avatar-admin{% else %}avatar-guest{% endif %}">{{ current_user.username[:2]|upper }}</span>
             <span class="user-meta">
@@ -33,6 +39,7 @@
     <a href="/geo" class="nav-link {% if active=='geo' %}active{% endif %}">Advanced Security</a>
     <a href="/yara" class="nav-link {% if active=='yara' %}active{% endif %}">YARA Controller</a>
     {% if is_admin %}<a href="/users" class="nav-link {% if active=='users' %}active{% endif %}">Users</a>{% endif %}
+    {% if is_admin %}<a href="/settings" class="nav-link {% if active=='settings' %}active{% endif %}">Settings</a>{% endif %}
 </div>
 
 <script>

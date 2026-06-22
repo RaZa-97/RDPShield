@@ -72,6 +72,7 @@ Python on server: **3.11 32-bit**. UTF-8 mode (`set PYTHONUTF8=1`) is required o
 - **User management (admin Users page, `/users`):** add user (username/password/**phone**/role), **Edit** (reset password and/or set phone via inline disclosure → `/users/update`), **Disable/Enable** (`disabled` column; disabled users can't log in), **Reset MFA**, **Delete**. **Root admin** model: the seeded/first admin has `is_root=1`; a **secondary admin cannot delete or disable the root admin** (UI hides the buttons + backend enforces), and you can't delete/disable yourself or the last admin. `current_user.is_root` is in the session + template context. New DB cols: `users.disabled`, `users.is_root`, `users.phone` (auto-migrated via `ALTER TABLE` in `create_users_table`).
 - **Forgot password via SMS (Notify.lk):** `/forgot` (enter username) → 6-digit code texted to the user's stored phone (`alerts.send_sms_to`) → `/reset` (code + new password). Codes are in-memory (`_RESET_CODES`, 10-min TTL, 5-try cap, single-use), neutral responses to avoid username enumeration. "Forgot password?" link on the login page. Templates: `forgot.html`, `reset.html`. Requires a phone on the account; otherwise an admin resets via the Users page.
 - **Operations top bar:** shared `templates/_topbar.html` (light theme) on all authed pages — brand, LIVE pill, UTC clock, **user chip** (avatar + name + role + live "active" session timer since login), Sign out. Admins also get a **Users** nav link. Sets `window.IS_ADMIN` so `tables.js` hides block/unblock buttons from guests. (Global search box removed — unused.)
+- **Settings page + dark theme (v3.4):** new admin **Settings** page (`/settings`) — **API key rotation** (VirusTotal / AbuseIPDB / Notify.lk, stored in the DB and overriding `config.py` at runtime, masked display + last-rotated time; blank = keep, `-` = clear), **Alert Recipients** (add/edit/delete SMS numbers that receive breach/block alerts; normalised to `94…`; falls back to `config.ALERT_TO_NUMBER`), **SMS alert-type toggles**, **data retention** (set target days + "Purge now" for failed_logins/alerts/geo_events), and the **Admin Audit Log** (recent admin/security actions + `/list/audit` + CSV export, admin-only). Runtime config now flows through `settings.py` (DB→config fallback); `alerts.py` and `virustotal.py` read keys/recipients/SMS-types dynamically, and `_post_sms` fans out to all active recipients. New DB tables `settings`, `alert_recipients`, `audit_log` (auto-created). **Dark futuristic theme** with a per-user light/dark toggle (top-bar icon + Settings): all templates carry `<html data-theme>`, the theme is saved on `users.theme`, and the look is driven by a `[data-theme="dark"]` CSS-variable override (cyber navy/electric-blue + panel glows). Audit logging is wired into logins, logout, block/unblock, geo changes, user management, settings changes, and breach lockouts.
 - **Session security + breach defence (v3.4):** **1-hour idle auto-logout** (server-side `last_active` in `before_request`; background `/api/*` + `/yara/status` polling enforces the timeout but does NOT count as activity, so an idle-but-open tab still expires). **Account lockout on suspicious login** — 5+ wrong passwords, OR a valid login while the account is already active (concurrent session, 10-min `CONCURRENT_WINDOW`) → the account is **disabled** and the **root admin is SMS'd immediately** (`alerts.send_sms_to`). Admin-account targets get a stronger "breach attempt" warning; the **root admin is never auto-locked** (warned only, to avoid permanent lockout). In-memory state (`_FAILED_LOGINS`, `_ACTIVE_USERS`). Root phone resolved from the root user's phone, falling back to `config.ALERT_TO_NUMBER`. Phone numbers are normalised to Notify.lk format (`94…`) on save and send. Flash messages are now colour-coded (green success / red error) via categories.
 - **CSV export:** `/export/<key>.csv` (`EXPORT_VIEWS` registry) streams the full dataset for offline analysis — alerts, blocked IPs, failed logins, geo events, whitelist events, YARA scans. "Export CSV" buttons sit beside each "View all"; available to admins **and** guests (login required, not admin).
 - No DB schema migration needed for the v3.2 table work; v3.3 adds the `users` table (auto-created on start). `get_blocked_ips(limit=…)` gained an optional cap.
@@ -150,7 +151,9 @@ xcopy "Z:\dashboard.py"  "C:\RDPShield\" /Y
 xcopy "Z:\rdpshield.py"  "C:\RDPShield\" /Y
 xcopy "Z:\countries.py"  "C:\RDPShield\" /Y
 xcopy "Z:\auth.py"       "C:\RDPShield\" /Y
+xcopy "Z:\settings.py"   "C:\RDPShield\" /Y
 xcopy "Z:\alerts.py"     "C:\RDPShield\" /Y
+xcopy "Z:\virustotal.py" "C:\RDPShield\" /Y
 xcopy "Z:\yara_routes.py" "C:\RDPShield\" /Y
 
 # Frontend only (browser hard-refresh Ctrl+F5 is enough, no restart needed)
@@ -168,7 +171,11 @@ xcopy "Z:\templates\users.html"   "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\403.html"     "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\forgot.html"  "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\reset.html"   "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\settings.html" "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\_topbar.html" "C:\RDPShield\templates\" /Y
+xcopy "Z:\static\js\tables.js"    "C:\RDPShield\static\js\" /Y
 ```
+> All HTML templates changed (dark-theme `data-theme` attr) — copy the whole `templates\` folder. `settings.py` and `virustotal.py`/`alerts.py` are required for runtime key rotation.
 
 ---
 

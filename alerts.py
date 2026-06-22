@@ -21,14 +21,9 @@ Handles three things when an attack is detected:
 import requests
 from config import (
     IP_API_URL,
-    ABUSEIPDB_API_KEY,
     ABUSEIPDB_URL,
-    NOTIFY_USER_ID,
-    NOTIFY_API_KEY,
-    NOTIFY_SENDER_ID,
-    ALERT_TO_NUMBER,
-    SMS_ALERT_TYPES,
 )
+import settings  # DB-backed keys / recipients / SMS types (override config.py)
 
 
 def lookup_geolocation(ip_address):
@@ -100,14 +95,15 @@ def check_abuse_reputation(ip_address):
 
     The abuse_confidence_score ranges from 0 (clean) to 100 (definitely malicious).
     """
-    if not ABUSEIPDB_API_KEY:
+    abuse_key = settings.abuseipdb_key()
+    if not abuse_key:
         print("[ABUSE] AbuseIPDB API key not configured. Skipping.")
         return {}
 
     try:
         headers = {
             "Accept": "application/json",
-            "Key": ABUSEIPDB_API_KEY,
+            "Key": abuse_key,
         }
         params = {
             "ipAddress": ip_address,
@@ -162,51 +158,54 @@ REASON_LABELS = {
 
 def _post_sms(message_body):
     """
-    Low-level Notify.lk sender. Posts the given message body and returns
-    True on success. Shared by all SMS helpers.
+    Low-level Notify.lk sender. Sends the message to EVERY active alert
+    recipient (Settings) — falling back to config.ALERT_TO_NUMBER when none
+    are configured. Returns True if at least one send succeeded.
     """
-    if not all([NOTIFY_USER_ID, NOTIFY_API_KEY, ALERT_TO_NUMBER]):
-        print("[SMS] Notify.lk not configured. Skipping SMS.")
+    uid, key, sender = (settings.notify_user_id(),
+                        settings.notify_api_key(),
+                        settings.notify_sender_id())
+    numbers = settings.alert_numbers()
+    if not all([uid, key]) or not numbers:
+        print("[SMS] Notify.lk not configured / no recipients. Skipping SMS.")
         return False
 
-    try:
-        message_body = message_body[:621]  # Notify.lk hard limit
-        url = "https://app.notify.lk/api/v1/send"
-        params = {
-            "user_id": NOTIFY_USER_ID,
-            "api_key": NOTIFY_API_KEY,
-            "sender_id": NOTIFY_SENDER_ID,
-            "to": ALERT_TO_NUMBER,
-            "message": message_body,
-        }
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
-        if data.get("status") == "success":
-            print("[SMS] Sent via Notify.lk!")
-            return True
-        print(f"[SMS] Notify.lk error: {data}")
-        return False
-    except Exception as e:
-        print(f"[SMS] Error sending SMS: {e}")
-        return False
+    message_body = message_body[:621]  # Notify.lk hard limit
+    url = "https://app.notify.lk/api/v1/send"
+    sent_any = False
+    for to in numbers:
+        try:
+            params = {"user_id": uid, "api_key": key, "sender_id": sender,
+                      "to": to, "message": message_body}
+            data = requests.get(url, params=params, timeout=10).json()
+            if data.get("status") == "success":
+                print(f"[SMS] Sent to {to}")
+                sent_any = True
+            else:
+                print(f"[SMS] Notify.lk error for {to}: {data}")
+        except Exception as e:
+            print(f"[SMS] Error sending to {to}: {e}")
+    return sent_any
 
 
 def send_sms_to(to_number, message_body):
     """
     Send an SMS to a specific number via Notify.lk (used for password-reset
-    codes, which must go to the individual user's phone rather than the fixed
-    alert number). Returns True on success.
+    codes and breach alerts to a specific phone). Returns True on success.
     """
-    if not all([NOTIFY_USER_ID, NOTIFY_API_KEY, to_number]):
+    uid, key, sender = (settings.notify_user_id(),
+                        settings.notify_api_key(),
+                        settings.notify_sender_id())
+    if not all([uid, key, to_number]):
         print("[SMS] Notify.lk not configured or no number. Skipping SMS.")
         return False
     try:
         message_body = message_body[:621]
         url = "https://app.notify.lk/api/v1/send"
         params = {
-            "user_id": NOTIFY_USER_ID,
-            "api_key": NOTIFY_API_KEY,
-            "sender_id": NOTIFY_SENDER_ID,
+            "user_id": uid,
+            "api_key": key,
+            "sender_id": sender,
             "to": to_number,
             "message": message_body,
         }
@@ -260,8 +259,8 @@ def send_sms_alert(alert_type, source_ip, description, geo_info=None):
     Returns:
         True if SMS sent successfully, False otherwise
     """
-    # Check if this alert type should trigger SMS
-    if alert_type not in SMS_ALERT_TYPES:
+    # Check if this alert type should trigger SMS (DB toggles override config)
+    if alert_type not in settings.sms_alert_types():
         print(f"[SMS] Alert type '{alert_type}' not in SMS list. Skipping.")
         return False
 
