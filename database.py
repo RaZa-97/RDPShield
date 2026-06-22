@@ -1122,8 +1122,26 @@ def create_users_table():
             totp_secret   TEXT,
             mfa_enabled   INTEGER DEFAULT 0,
             created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-            last_login    TEXT
+            last_login    TEXT,
+            disabled      INTEGER DEFAULT 0,
+            is_root       INTEGER DEFAULT 0,
+            phone         TEXT
         )""")
+    # Migrate older installs that pre-date the disabled/is_root/phone columns.
+    existing = {r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()}
+    for col, ddl in (("disabled", "INTEGER DEFAULT 0"),
+                     ("is_root", "INTEGER DEFAULT 0"),
+                     ("phone", "TEXT")):
+        if col not in existing:
+            c.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+    # Ensure exactly one root admin exists: the earliest admin account.
+    has_root = c.execute("SELECT COUNT(*) AS n FROM users WHERE is_root = 1").fetchone()["n"]
+    if not has_root:
+        row = c.execute(
+            "SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if row:
+            c.execute("UPDATE users SET is_root = 1 WHERE id = ?", (row["id"],))
     conn.commit(); conn.close()
 
 
@@ -1135,14 +1153,16 @@ def count_users():
 
 
 def create_user(username, password_hash, role="guest", totp_secret=None,
-                mfa_enabled=0):
+                mfa_enabled=0, phone=None, is_root=0):
     """Create a user. Returns True on success, False if the name is taken."""
     conn = get_connection(); c = conn.cursor()
     try:
         c.execute("""
-            INSERT INTO users (username, password_hash, role, totp_secret, mfa_enabled)
-            VALUES (?, ?, ?, ?, ?)
-        """, (username, password_hash, role, totp_secret, mfa_enabled))
+            INSERT INTO users (username, password_hash, role, totp_secret,
+                               mfa_enabled, phone, is_root)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (username, password_hash, role, totp_secret, mfa_enabled,
+              phone, is_root))
         conn.commit(); ok = True
     except sqlite3.IntegrityError:
         ok = False
@@ -1167,11 +1187,32 @@ def get_user_by_id(user_id):
 def list_users():
     conn = get_connection(); c = conn.cursor()
     c.execute("""
-        SELECT id, username, role, mfa_enabled, created_at, last_login
-        FROM users ORDER BY role = 'admin' DESC, username ASC
+        SELECT id, username, role, mfa_enabled, created_at, last_login,
+               disabled, is_root, phone
+        FROM users ORDER BY is_root DESC, role = 'admin' DESC, username ASC
     """)
     rows = [dict(r) for r in c.fetchall()]; conn.close()
     return rows
+
+
+def get_user_by_phone(phone):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE phone = ?", (phone,))
+    row = c.fetchone(); conn.close()
+    return dict(row) if row else None
+
+
+def set_user_disabled(user_id, disabled):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE users SET disabled = ? WHERE id = ?",
+              (1 if disabled else 0, user_id))
+    conn.commit(); conn.close()
+
+
+def update_user_phone(user_id, phone):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE users SET phone = ? WHERE id = ?", (phone, user_id))
+    conn.commit(); conn.close()
 
 
 def delete_user(user_id):

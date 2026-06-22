@@ -19,6 +19,8 @@ Access: http://SERVER_IP:5000
 
 import csv
 import io
+import random
+import time
 from datetime import datetime
 
 from flask import (
@@ -58,9 +60,12 @@ from database import (
     delete_user,
     set_user_totp,
     update_last_login,
+    set_user_disabled,
+    update_user_phone,
+    update_user_password,
 )
 from firewall import unblock_ip, block_ip
-from alerts import process_alert_enrichment
+from alerts import process_alert_enrichment, send_sms_to
 from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG
 from countries import COUNTRY_NAMES
 import auth
@@ -81,7 +86,7 @@ app.secret_key = "rdpshield_secret_key"  # Needed for sessions + flash messages
 # =========================================================================
 
 # Endpoints reachable WITHOUT a full login (the auth flow itself + assets).
-PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "static"}
+PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "forgot", "reset", "static"}
 
 
 @app.before_request
@@ -103,6 +108,7 @@ def inject_user():
             "id": session.get("user_id"),
             "username": session.get("username"),
             "role": session.get("role"),
+            "is_root": session.get("is_root", False),
         } if session.get("user_id") else None,
         "is_admin": session.get("role") == "admin",
         "login_at": session.get("login_at"),
@@ -118,8 +124,8 @@ def _seed_default_admin():
     """First run: create an admin/admin account so the operator can log in.
     MFA is enrolled on first login. The password MUST be changed after."""
     if count_users() == 0:
-        create_user("admin", auth.hash_password("admin"), role="admin")
-        print("[AUTH] Seeded default admin account (admin / admin) — "
+        create_user("admin", auth.hash_password("admin"), role="admin", is_root=1)
+        print("[AUTH] Seeded default ROOT admin account (admin / admin) — "
               "change this password after first login.")
 
 
@@ -139,6 +145,9 @@ def login():
         user = get_user_by_username(username)
         if not user or not auth.verify_password(user["password_hash"], password):
             return render_template("login.html", error="Invalid username or password.")
+        if user.get("disabled"):
+            return render_template("login.html",
+                                   error="This account is disabled. Contact an administrator.")
 
         # Password OK -> hand off to the MFA step. Stash a *pending* identity
         # only; the full session is not granted until TOTP succeeds.
@@ -196,6 +205,7 @@ def mfa():
         session["user_id"] = user["id"]
         session["username"] = user["username"]
         session["role"] = user["role"]
+        session["is_root"] = bool(user["is_root"])
         session["login_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
         return redirect(url_for("index"))
 
@@ -237,6 +247,88 @@ def _qr_svg(uri):
 
 
 # =========================================================================
+# FORGOT / RESET PASSWORD (SMS code via Notify.lk)
+# =========================================================================
+
+# In-memory reset codes: username -> {"code", "expires", "tries"}.
+# Lives in the dashboard process; fine for this single-process app.
+_RESET_CODES = {}
+_RESET_TTL = 600       # 10 minutes
+_RESET_MAX_TRIES = 5
+
+
+def _mask_phone(p):
+    p = p or ""
+    return ("•" * max(0, len(p) - 3)) + p[-3:] if p else ""
+
+
+@app.route("/forgot", methods=["GET", "POST"])
+def forgot():
+    if session.get("user_id"):
+        return redirect(url_for("index"))
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        user = get_user_by_username(username)
+        # Only send when the account exists, isn't disabled, and has a phone.
+        masked = ""
+        if user and not user.get("disabled") and user.get("phone"):
+            code = f"{random.randint(0, 999999):06d}"
+            _RESET_CODES[username] = {
+                "code": code, "expires": time.time() + _RESET_TTL, "tries": 0,
+            }
+            send_sms_to(user["phone"],
+                        f"RDPShield password reset code: {code} "
+                        f"(valid 10 min). If you didn't request this, ignore it.")
+            masked = _mask_phone(user["phone"])
+            print(f"[AUTH] Password reset code sent for {username}")
+        # Neutral handoff regardless, to avoid leaking which accounts exist.
+        session["reset_user"] = username
+        return render_template("reset.html", error=None, sent=True, masked=masked)
+
+    return render_template("forgot.html", error=None)
+
+
+@app.route("/reset", methods=["GET", "POST"])
+def reset():
+    username = session.get("reset_user")
+    if not username:
+        return redirect(url_for("forgot"))
+
+    if request.method == "POST":
+        code = request.form.get("code", "").strip()
+        new_pw = request.form.get("password", "")
+        rec = _RESET_CODES.get(username)
+
+        if not rec or time.time() > rec["expires"]:
+            _RESET_CODES.pop(username, None)
+            return render_template("reset.html", sent=True, masked="",
+                                   error="That code has expired. Request a new one.")
+        rec["tries"] += 1
+        if rec["tries"] > _RESET_MAX_TRIES:
+            _RESET_CODES.pop(username, None)
+            return render_template("reset.html", sent=True, masked="",
+                                   error="Too many attempts. Request a new code.")
+        if code != rec["code"]:
+            return render_template("reset.html", sent=True, masked="",
+                                   error="Incorrect code. Try again.")
+        if len(new_pw) < 4:
+            return render_template("reset.html", sent=True, masked="",
+                                   error="Choose a password of at least 4 characters.")
+
+        user = get_user_by_username(username)
+        if user:
+            update_user_password(user["id"], auth.hash_password(new_pw))
+            print(f"[AUTH] Password reset completed for {username}")
+        _RESET_CODES.pop(username, None)
+        session.pop("reset_user", None)
+        flash("Password updated. Sign in with your new password.")
+        return redirect(url_for("login"))
+
+    return render_template("reset.html", sent=True, masked="", error=None)
+
+
+# =========================================================================
 # USER MANAGEMENT (admin only)
 # =========================================================================
 
@@ -251,11 +343,13 @@ def users_page():
 def users_add():
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
+    phone = request.form.get("phone", "").strip() or None
     role = request.form.get("role", "guest")
     if role not in ("admin", "guest"):
         role = "guest"
     if username and password:
-        ok = create_user(username, auth.hash_password(password), role=role)
+        ok = create_user(username, auth.hash_password(password), role=role,
+                         phone=phone)
         if not ok:
             flash(f"Username '{username}' already exists.")
         else:
@@ -263,15 +357,23 @@ def users_add():
     return redirect(url_for("users_page"))
 
 
+def _i_am_root():
+    me = get_user_by_id(session.get("user_id"))
+    return bool(me and me.get("is_root"))
+
+
 @app.route("/users/delete/<int:user_id>", methods=["POST"])
 @auth.admin_required
 def users_delete(user_id):
     target = get_user_by_id(user_id)
-    # Guard rails: never delete yourself, never remove the last admin.
+    # Guard rails: no self-delete, no removing the last admin, and the ROOT
+    # admin can only be deleted by root (i.e. never by a secondary admin).
     if not target:
         pass
     elif user_id == session.get("user_id"):
         flash("You can't delete your own account while signed in.")
+    elif target.get("is_root") and not _i_am_root():
+        flash("The root admin can't be deleted by a secondary admin.")
     elif target["role"] == "admin" and count_admins() <= 1:
         flash("Can't delete the last remaining admin.")
     else:
@@ -288,6 +390,59 @@ def users_reset_mfa(user_id):
     if target:
         set_user_totp(user_id, None, enabled=0)
         print(f"[AUTH] Reset MFA for user: {target['username']}")
+    return redirect(url_for("users_page"))
+
+
+@app.route("/users/update/<int:user_id>", methods=["POST"])
+@auth.admin_required
+def users_update(user_id):
+    """Admin sets a new password and/or phone for a user (blank = unchanged)."""
+    target = get_user_by_id(user_id)
+    if not target:
+        return redirect(url_for("users_page"))
+    new_pw = request.form.get("password", "")
+    phone = request.form.get("phone", "").strip()
+    changed = []
+    if new_pw:
+        if len(new_pw) < 4:
+            flash("Password must be at least 4 characters.")
+            return redirect(url_for("users_page"))
+        update_user_password(user_id, auth.hash_password(new_pw))
+        changed.append("password")
+    if phone != (target.get("phone") or ""):
+        update_user_phone(user_id, phone or None)
+        changed.append("phone")
+    if changed:
+        print(f"[AUTH] Updated {target['username']}: {', '.join(changed)}")
+        flash(f"Updated {target['username']} ({', '.join(changed)}).")
+    return redirect(url_for("users_page"))
+
+
+@app.route("/users/disable/<int:user_id>", methods=["POST"])
+@auth.admin_required
+def users_disable(user_id):
+    target = get_user_by_id(user_id)
+    if not target:
+        pass
+    elif user_id == session.get("user_id"):
+        flash("You can't disable your own account.")
+    elif target.get("is_root") and not _i_am_root():
+        flash("The root admin can't be disabled by a secondary admin.")
+    elif target["role"] == "admin" and count_admins() <= 1:
+        flash("Can't disable the last remaining admin.")
+    else:
+        set_user_disabled(user_id, True)
+        print(f"[AUTH] Disabled user: {target['username']}")
+    return redirect(url_for("users_page"))
+
+
+@app.route("/users/enable/<int:user_id>", methods=["POST"])
+@auth.admin_required
+def users_enable(user_id):
+    target = get_user_by_id(user_id)
+    if target:
+        set_user_disabled(user_id, False)
+        print(f"[AUTH] Enabled user: {target['username']}")
     return redirect(url_for("users_page"))
 
 

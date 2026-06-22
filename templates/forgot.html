@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RDPShield — Sign in</title>
+    <title>RDPShield — Forgot password</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -17,32 +17,21 @@
             </div>
         </div>
 
-        <div class="auth-step">STEP 01 / AUTHENTICATE</div>
-        <h1 class="auth-h1">Sign in</h1>
-        <p class="auth-sub">Access the RDPShield operations console.</p>
+        <div class="auth-step">RECOVERY / SEND CODE</div>
+        <h1 class="auth-h1">Forgot password</h1>
+        <p class="auth-sub">Enter your username. If a phone number is on file, we'll text you a
+            6-digit reset code via SMS.</p>
 
         {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
 
-        <form method="POST" action="/login" class="auth-form">
+        <form method="POST" action="/forgot" class="auth-form">
             <label class="auth-label" for="username">Username</label>
             <input class="form-input auth-input" type="text" id="username" name="username"
                    autocomplete="username" autofocus required>
-
-            <label class="auth-label" for="password">Password</label>
-            <input class="form-input auth-input" type="password" id="password" name="password"
-                   autocomplete="current-password" required>
-
-            <div class="auth-row">
-                <label class="auth-remember">
-                    <input type="checkbox" name="remember"> Remember this device
-                </label>
-                <a href="/forgot" class="auth-forgot">Forgot password?</a>
-            </div>
-
-            <button type="submit" class="btn-apply auth-submit">Continue &rarr;</button>
+            <button type="submit" class="btn-apply auth-submit">Send reset code &rarr;</button>
         </form>
 
-        <div class="auth-foot"><span class="live-dot"></span> session encrypted</div>
+        <div class="auth-links"><a href="/login" class="auth-back">&larr; Back to sign in</a></div>
     </div>
 </body>
 </html>

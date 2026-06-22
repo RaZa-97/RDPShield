@@ -191,6 +191,37 @@ def _post_sms(message_body):
         return False
 
 
+def send_sms_to(to_number, message_body):
+    """
+    Send an SMS to a specific number via Notify.lk (used for password-reset
+    codes, which must go to the individual user's phone rather than the fixed
+    alert number). Returns True on success.
+    """
+    if not all([NOTIFY_USER_ID, NOTIFY_API_KEY, to_number]):
+        print("[SMS] Notify.lk not configured or no number. Skipping SMS.")
+        return False
+    try:
+        message_body = message_body[:621]
+        url = "https://app.notify.lk/api/v1/send"
+        params = {
+            "user_id": NOTIFY_USER_ID,
+            "api_key": NOTIFY_API_KEY,
+            "sender_id": NOTIFY_SENDER_ID,
+            "to": to_number,
+            "message": message_body,
+        }
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        if data.get("status") == "success":
+            print(f"[SMS] Reset code sent to {to_number}")
+            return True
+        print(f"[SMS] Notify.lk error: {data}")
+        return False
+    except Exception as e:
+        print(f"[SMS] Error sending SMS: {e}")
+        return False
+
+
 def send_block_sms(ip, country, alert_type, attempts, yara_summary,
                    city="", success_outside=False, timestamp=""):
     """
