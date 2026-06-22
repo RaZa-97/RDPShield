@@ -215,16 +215,24 @@ def logout():
 def _qr_svg(uri):
     """Render an otpauth URI as an inline SVG QR code, if the optional
     `qrcode` library is installed. Returns None otherwise — the MFA page
-    falls back to showing the secret key for manual entry."""
+    falls back to showing the secret key for manual entry.
+
+    Uses SvgPathImage: it has a viewBox (so CSS width:100% scales it) and a
+    plain <path> (no `svg:`-namespaced tags), both required to render inline
+    inside HTML. The leading <?xml …?> declaration is stripped for the same
+    reason — it's invalid inside an HTML body."""
     try:
         import qrcode
         import qrcode.image.svg
-        img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgImage,
-                          box_size=8, border=2)
+        img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage,
+                          box_size=10, border=2)
         buf = io.BytesIO()
         img.save(buf)
-        return buf.getvalue().decode("utf-8")
-    except Exception:
+        svg = buf.getvalue().decode("utf-8")
+        i = svg.find("<svg")
+        return svg[i:] if i != -1 else svg
+    except Exception as e:
+        print(f"[AUTH] QR render unavailable ({e}); showing manual key only.")
         return None
 
 
