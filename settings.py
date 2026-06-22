@@ -11,6 +11,7 @@ the agent import this module, so changes apply to both processes (shared DB).
 """
 
 import json
+from datetime import datetime
 
 import database
 import config
@@ -69,3 +70,52 @@ def retention_days():
         return int(_val("retention_days") or 0)
     except (ValueError, TypeError):
         return 0
+
+
+# --- API key rotation reminders -----------------------------------------
+# We reminder-nudge every `interval` days (SMS + dashboard) so keys get rotated
+# regularly. Per-key "last rotated" = the settings-row updated_at written when a
+# key is changed via the UI; keys still living in config.py are untracked.
+_ROTATABLE_KEYS = [
+    ("VirusTotal", "vt_api_key"),
+    ("AbuseIPDB", "abuseipdb_api_key"),
+    ("Notify.lk", "notify_api_key"),
+]
+
+
+def rotation_interval_days():
+    try:
+        return max(1, int(_val("key_rotation_interval_days") or 2))
+    except (ValueError, TypeError):
+        return 2
+
+
+def reminders_enabled():
+    return _val("key_rotation_reminders") != "0"  # default ON
+
+
+def key_rotation_status():
+    """Per-key rotation age. Returns a list of dicts:
+    {label, key, rotated_at, age_days (or None), due (bool)}."""
+    interval = rotation_interval_days()
+    allset = database.get_all_settings()
+    out = []
+    for label, skey in _ROTATABLE_KEYS:
+        meta = allset.get(skey)
+        rotated = meta["updated_at"] if (meta and meta.get("value")) else None
+        age = None
+        due = False
+        if rotated:
+            try:
+                dt = datetime.strptime(rotated[:19], "%Y-%m-%d %H:%M:%S")
+                age = (datetime.utcnow() - dt).days
+                due = age >= interval
+            except ValueError:
+                pass
+        out.append({"label": label, "key": skey, "rotated_at": rotated,
+                    "age_days": age, "due": due})
+    return out
+
+
+def any_key_due():
+    return any(s["due"] for s in key_rotation_status())

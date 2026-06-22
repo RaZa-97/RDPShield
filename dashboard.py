@@ -21,6 +21,7 @@ import csv
 import io
 import random
 import re
+import threading
 import time
 from datetime import datetime
 
@@ -657,6 +658,9 @@ def settings_page():
         active_sms_types=settings.sms_alert_types(),
         retention_days=settings.retention_days(),
         audit=get_audit(limit=100),
+        key_status=settings.key_rotation_status(),
+        rotation_interval=settings.rotation_interval_days(),
+        rotation_enabled=settings.reminders_enabled(),
     )
 
 
@@ -762,6 +766,54 @@ def settings_purge():
     return redirect(url_for("settings_page"))
 
 
+@app.route("/settings/rotation", methods=["POST"])
+@auth.admin_required
+def settings_rotation():
+    try:
+        days = max(1, int(request.form.get("interval", "2")))
+    except ValueError:
+        days = 2
+    enabled = bool(request.form.get("enabled"))
+    set_setting("key_rotation_interval_days", str(days))
+    set_setting("key_rotation_reminders", "1" if enabled else "0")
+    _audit("settings.rotation", f"interval={days}d enabled={enabled}")
+    flash("Key-rotation reminder settings saved.", "success")
+    return redirect(url_for("settings_page"))
+
+
+# --- background reminder: nudge admins to rotate API keys every N days -----
+def _rotation_reminder_loop():
+    """Daemon thread: every `interval` days, SMS the alert recipients/root a
+    reminder to rotate API keys. Throttled via the `last_rotation_reminder`
+    setting so restarts don't re-spam."""
+    while True:
+        try:
+            if settings.reminders_enabled():
+                interval = settings.rotation_interval_days()
+                last = get_setting("last_rotation_reminder")
+                due = True
+                if last:
+                    try:
+                        dt = datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")
+                        due = (datetime.utcnow() - dt).total_seconds() >= interval * 86400
+                    except ValueError:
+                        due = True
+                if due:
+                    parts = []
+                    for s in settings.key_rotation_status():
+                        parts.append(f"{s['label']}: "
+                                     + (f"{s['age_days']}d" if s['age_days'] is not None
+                                        else "not rotated"))
+                    _notify_root("RDPShield reminder: review & rotate your API keys "
+                                 "in the dashboard (Settings). " + "; ".join(parts))
+                    set_setting("last_rotation_reminder",
+                                datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+                    print("[REMINDER] API-key rotation reminder sent.")
+        except Exception as e:
+            print(f"[REMINDER] loop error: {e}")
+        time.sleep(3600)  # re-check hourly
+
+
 # =========================================================================
 # MAIN DASHBOARD PAGE
 # =========================================================================
@@ -781,6 +833,11 @@ def index():
     alert_breakdown_30d = get_alert_type_breakdown(days=30)
     top_countries = get_top_attacker_countries(limit=20)
 
+    # API-key rotation reminder banner (admins only, when enabled).
+    key_status = []
+    if session.get("role") == "admin" and settings.reminders_enabled():
+        key_status = settings.key_rotation_status()
+
     return render_template(
         "index.html",
         stats=stats,
@@ -790,6 +847,8 @@ def index():
         trend=trend,
         alert_breakdown_30d=alert_breakdown_30d,
         top_countries=top_countries,
+        key_status=key_status,
+        rotation_interval=settings.rotation_interval_days(),
     )
 
 
@@ -1114,6 +1173,8 @@ if __name__ == "__main__":
     print("[DASHBOARD] Initializing database...")
     init_db()
     _seed_default_admin()
+    # Background API-key rotation reminder (SMS). Daemon so it dies with the app.
+    threading.Thread(target=_rotation_reminder_loop, daemon=True).start()
     print(f"[DASHBOARD] Starting on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
     print("[DASHBOARD] Press Ctrl+C to stop.\n")
     app.run(

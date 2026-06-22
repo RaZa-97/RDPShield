@@ -1433,3 +1433,38 @@ footer {
 
 /* Chart gridlines hardcoded for light theme — soften on dark via canvas wrap bg */
 [data-theme="dark"] .chart-canvas-wrap { filter: none; }
+
+/* =========================================================================
+   API KEY ROTATION REMINDER (dashboard banner + age pills)
+   ========================================================================= */
+.rotate-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--brand-light);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 22px;
+    box-shadow: var(--shadow);
+}
+.rotate-banner.rotate-due {
+    border-left-color: var(--high);
+    background: rgba(234, 88, 12, 0.08);
+}
+.rotate-icon { font-size: 1.3rem; }
+.rotate-text { flex: 1; font-size: 0.9rem; color: var(--text); }
+.rotate-note { color: var(--high); font-weight: 600; }
+.age-pill {
+    display: inline-block;
+    margin: 2px 4px 2px 0;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    color: var(--muted);
+}
+.age-pill.age-due { background: rgba(234, 88, 12, 0.14); color: var(--high); border-color: transparent; }

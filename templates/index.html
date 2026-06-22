@@ -21,6 +21,22 @@
             <span class="live-pill"><span class="live-dot"></span>Live &middot; updates in place every 10s</span>
         </header>
 
+        {% if key_status %}
+        {% set any_due = key_status | selectattr('due') | list | length > 0 %}
+        <div class="rotate-banner {% if any_due %}rotate-due{% endif %}">
+            <span class="rotate-icon">&#128273;</span>
+            <div class="rotate-text">
+                <strong>API key rotation</strong> &mdash;
+                {% for s in key_status %}
+                <span class="age-pill {% if s.due %}age-due{% endif %}">{{ s.label }}:
+                    {% if s.age_days is not none %}{{ s.age_days }}d ago{% else %}not rotated{% endif %}</span>
+                {% endfor %}
+                {% if any_due %}<span class="rotate-note">— overdue (&ge; {{ rotation_interval }}d). Time to rotate.</span>{% endif %}
+            </div>
+            <a href="/settings" class="btn-viewall" style="margin:0;">Rotate in Settings &rarr;</a>
+        </div>
+        {% endif %}
+
         <!-- Stats Cards -->
         <div class="stats-grid">
             <div class="stat-card">

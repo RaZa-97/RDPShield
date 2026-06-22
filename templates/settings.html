@@ -78,6 +78,24 @@
                 </table>
                 <button type="submit" class="btn-add" style="margin-top:14px;">Save keys</button>
             </form>
+
+            <h3 style="margin-top:22px;">&#128260; Rotation reminders</h3>
+            <p class="section-desc">Get an SMS + dashboard reminder to rotate keys on a schedule. Key ages:
+                {% for s in key_status %}
+                <span class="age-pill {% if s.due %}age-due{% endif %}">{{ s.label }}:
+                    {% if s.age_days is not none %}{{ s.age_days }}d{% else %}not rotated{% endif %}</span>
+                {% endfor %}
+            </p>
+            <form method="POST" action="/settings/rotation" class="inline-form">
+                <label class="check-item" style="border:none;background:none;padding:0;">
+                    <input type="checkbox" name="enabled" {% if rotation_enabled %}checked{% endif %}> Enabled
+                </label>
+                <label class="check-item" style="border:none;background:none;padding:0;">
+                    Remind every
+                    <input type="number" name="interval" value="{{ rotation_interval }}" min="1" class="form-input" style="max-width:90px;"> days
+                </label>
+                <button type="submit" class="btn-add">Save reminders</button>
+            </form>
         </div>
 
         <!-- ALERT RECIPIENTS -->
