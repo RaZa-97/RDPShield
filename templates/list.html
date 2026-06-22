@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield — {{ title }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar">
+            <div class="nav-brand"><img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">RDPShield</div>
+            <div class="nav-links">
+                <a href="/" class="nav-link">Dashboard</a>
+                <a href="/geo" class="nav-link">Advanced Security</a>
+                <a href="/yara" class="nav-link">YARA Controller</a>
+            </div>
+        </nav>
+
+        <header>
+            <div>
+                <h1>{{ title }}</h1>
+                <p class="subtitle">Full list &middot; searchable</p>
+            </div>
+            <a href="{{ back_url }}" class="btn-back">&larr; Back</a>
+        </header>
+
+        <div class="section">
+            <div class="list-toolbar">
+                <input type="text" id="listSearch" class="form-input list-search"
+                       placeholder="Search…" autocomplete="off">
+                <span class="list-info" id="listInfo">Loading…</span>
+            </div>
+            <div id="listTable"><p class="empty">Loading…</p></div>
+            <div class="pager" id="listPager"></div>
+        </div>
+
+        <footer>
+            <p>RDPShield v3.1 | {{ title }}</p>
+        </footer>
+    </div>
+
+    <div class="modal-overlay" id="confirmModalOverlay">
+        <div class="modal-box">
+            <h3 id="confirmModalTitle">Please confirm</h3>
+            <p id="confirmModalMessage"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+                <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tables.js') }}"></script>
+    <script>
+        initListPage("{{ renderer }}", "{{ api_url }}");
+    </script>
+</body>
+</html>

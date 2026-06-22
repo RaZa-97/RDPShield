@@ -592,14 +592,15 @@ def get_recent_alerts(limit=50):
     return [dict(row) for row in rows]
 
 
-def get_blocked_ips():
+def get_blocked_ips(limit=None):
     """
     Get all currently blocked IPs for the dashboard. Each row also carries
     `attempts` — the total failed logins recorded from that IP.
+    Pass `limit` to cap the number of rows (None = all).
     """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    sql = """
         SELECT b.*,
                (SELECT COUNT(*) FROM failed_logins f
                 WHERE f.source_ip = b.ip_address) AS attempts,
@@ -613,7 +614,11 @@ def get_blocked_ips():
         FROM blocked_ips b
         WHERE b.is_active = 1
         ORDER BY b.blocked_at DESC
-    """)
+    """
+    if limit is not None:
+        cursor.execute(sql + " LIMIT ?", (limit,))
+    else:
+        cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]

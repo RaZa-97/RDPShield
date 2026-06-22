@@ -142,6 +142,7 @@
             <p class="empty">No alerts yet. Waiting for attack detection...</p>
             {% endif %}
             </div>
+            <a href="/list/alerts" target="_blank" class="btn-viewall">View all alerts ({{ stats.total_alerts }}) &rarr;</a>
         </div>
 
         <!-- Blocked IPs -->
@@ -205,6 +206,7 @@
             <p class="empty">No IPs currently blocked.</p>
             {% endif %}
             </div>
+            <a href="/list/blocked" target="_blank" class="btn-viewall">View all blocked IPs ({{ stats.total_blocked }}) &rarr;</a>
         </div>
 
         <!-- Recent Failed Logins -->
@@ -260,6 +262,7 @@
             <p class="empty">No failed login events recorded yet.</p>
             {% endif %}
             </div>
+            <a href="/list/events" target="_blank" class="btn-viewall">View all failed logins ({{ stats.total_failed_logins }}) &rarr;</a>
         </div>
 
         <footer>
@@ -279,6 +282,7 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tables.js') }}"></script>
     <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
     <script>
         const trendData = {{ trend | tojson }};
@@ -402,103 +406,10 @@
          via the JSON API WITHOUT reloading the page, so scroll position,
          open forms, and confirm dialogs are never disturbed. Updates pause
          while a modal is open or while you're typing in a field. -->
+    <!-- Row renderers (buildAlerts/buildBlocked/buildRecent + helpers) live in
+         static/js/tables.js so the dashboard and the full-list pages stay in
+         sync. Only the limit=5 preview-refresh logic is page-specific. -->
     <script>
-        function esc(t) {
-            return (t == null ? '' : String(t)).replace(/[&<>"]/g,
-                c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        }
-        function abuseCell(s) {
-            if (s === null || s === undefined) return '&mdash;';
-            if (s >= 75) return '<span class="score-high">' + s + '%</span>';
-            if (s >= 25) return '<span class="score-medium">' + s + '%</span>';
-            return '<span class="score-low">' + s + '%</span>';
-        }
-        function setNum(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
-
-        // VirusTotal IP reputation: cached client-side so a looked-up result
-        // survives the 10s table refresh (and doesn't burn extra VT quota).
-        const vtCache = {};
-        function vtCellHtml(ip) {
-            const d = vtCache[ip];
-            if (!d) return '<button class="btn-sm" onclick="vtIp(\'' + esc(ip) + '\', this)">VT</button>';
-            if (d.found) {
-                const cls = d.malicious > 0 ? 'score-high' : 'score-low';
-                return '<a href="' + d.permalink + '" target="_blank" class="' + cls + '">'
-                    + d.malicious + '/' + d.total + '</a>';
-            }
-            return '<span class="muted" title="' + esc(d.reason || '') + '">n/a</span>';
-        }
-        async function vtIp(ip, btn) {
-            btn.disabled = true; btn.textContent = '…';
-            try {
-                const r = await fetch('/yara/vt/ip/' + ip); const d = await r.json();
-                vtCache[ip] = d;
-                const cell = btn.parentElement;
-                if (cell) cell.innerHTML = vtCellHtml(ip);
-            } catch (e) { btn.disabled = false; btn.textContent = 'VT'; }
-        }
-
-        function buildAlerts(rows) {
-            if (!rows.length) return '<p class="empty">No alerts yet. Waiting for attack detection...</p>';
-            let h = '<table><thead><tr><th>Time</th><th>Type</th><th>Attacker IP</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>Description</th><th>Blocked</th><th>SMS</th></tr></thead><tbody>';
-            for (const a of rows) {
-                const loc = esc(a.geo_city || '') + (a.geo_country ? ', ' + esc(a.geo_country) : '');
-                h += '<tr class="alert-row-' + esc(a.alert_type) + '">'
-                    + '<td>' + esc((a.timestamp || '').slice(0, 19)) + '</td>'
-                    + '<td><span class="badge badge-' + esc(a.alert_type) + '">' + esc(a.alert_type) + '</span></td>'
-                    + '<td class="ip">' + esc(a.source_ip) + '</td>'
-                    + '<td><strong>' + (a.attempts != null ? a.attempts : 0) + '</strong></td>'
-                    + '<td>' + loc + '</td>'
-                    + '<td>' + esc(a.isp || '—') + '</td>'
-                    + '<td>' + abuseCell(a.abuse_score) + '</td>'
-                    + '<td class="vt-cell">' + vtCellHtml(a.source_ip) + '</td>'
-                    + '<td class="description">' + esc(a.description || '') + '</td>'
-                    + '<td>' + (a.blocked ? '&#9989;' : '&#10060;') + '</td>'
-                    + '<td>' + (a.sms_sent ? '&#9989;' : '&#10060;') + '</td></tr>';
-            }
-            return h + '</tbody></table>';
-        }
-        function buildBlocked(rows) {
-            if (!rows.length) return '<p class="empty">No IPs currently blocked.</p>';
-            let h = '<table><thead><tr><th>IP Address</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>Reason</th><th>Blocked At</th><th>Action</th></tr></thead><tbody>';
-            for (const ip of rows) {
-                h += '<tr><td class="ip">' + esc(ip.ip_address) + '</td>'
-                    + '<td><strong>' + (ip.attempts != null ? ip.attempts : 0) + '</strong></td>'
-                    + '<td>' + esc(ip.country || '—') + '</td>'
-                    + '<td>' + esc(ip.isp || '—') + '</td>'
-                    + '<td>' + abuseCell(ip.abuse_score) + '</td>'
-                    + '<td class="vt-cell">' + vtCellHtml(ip.ip_address) + '</td>'
-                    + '<td>' + esc(ip.reason || '') + '</td>'
-                    + '<td>' + esc(ip.blocked_at || '') + '</td>'
-                    + '<td><form method="POST" action="/unblock/' + encodeURIComponent(ip.ip_address) + '" class="confirm-form"'
-                    + ' data-confirm-message="Unblock ' + esc(ip.ip_address) + '? It will be able to attempt logins again."'
-                    + ' data-confirm-title="Unblock IP address" data-confirm-ok="Unblock" style="display:inline;">'
-                    + '<button type="submit" class="btn-unblock">Unblock</button></form></td></tr>';
-            }
-            return h + '</tbody></table>';
-        }
-        function buildRecent(rows) {
-            if (!rows.length) return '<p class="empty">No failed login events recorded yet.</p>';
-            let h = '<table><thead><tr><th>Time</th><th>Source IP</th><th>Country</th><th>ISP</th><th>Abuse Score</th><th>Username</th><th>Domain</th><th>Sub Status</th><th>Action</th></tr></thead><tbody>';
-            for (const e of rows) {
-                h += '<tr><td>' + esc((e.timestamp || '').slice(0, 19)) + '</td>'
-                    + '<td class="ip">' + esc(e.source_ip) + '</td>'
-                    + '<td>' + esc(e.geo_country || '—') + '</td>'
-                    + '<td>' + esc(e.geo_isp || '—') + '</td>'
-                    + '<td>' + abuseCell(e.abuse_score) + '</td>'
-                    + '<td>' + esc(e.username || '') + '</td>'
-                    + '<td>' + esc(e.domain || '') + '</td>'
-                    + '<td><code>' + esc(e.sub_status || '') + '</code></td>'
-                    + '<td><form method="POST" action="/block" class="confirm-form"'
-                    + ' data-confirm-message="Block ' + esc(e.source_ip) + ' at the Windows Firewall? All inbound traffic from it will be dropped."'
-                    + ' data-confirm-title="Block IP address" data-confirm-ok="Block" data-confirm-danger="true" style="display:inline;">'
-                    + '<input type="hidden" name="ip_address" value="' + esc(e.source_ip) + '">'
-                    + '<input type="hidden" name="reason" value="Manually blocked from failed-login list">'
-                    + '<button type="submit" class="btn-remove">Block</button></form></td></tr>';
-            }
-            return h + '</tbody></table>';
-        }
-
         function liveRefresh() {
             // Don't disturb the user mid-action.
             if (document.querySelector('.modal-overlay.show')) return;
@@ -507,9 +418,9 @@
 
             Promise.all([
                 fetch('/api/stats').then(r => r.json()),
-                fetch('/api/alerts').then(r => r.json()),
-                fetch('/api/blocked').then(r => r.json()),
-                fetch('/api/events').then(r => r.json()),
+                fetch('/api/alerts?limit=5').then(r => r.json()),
+                fetch('/api/blocked?limit=5').then(r => r.json()),
+                fetch('/api/events?limit=5').then(r => r.json()),
             ]).then(([s, al, bl, rc]) => {
                 setNum('stat-failed', s.total_failed_logins);
                 setNum('stat-alerts', s.total_alerts);

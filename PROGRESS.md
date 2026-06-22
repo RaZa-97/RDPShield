@@ -57,6 +57,7 @@ Python on server: **3.11 32-bit**. UTF-8 mode (`set PYTHONUTF8=1`) is required o
 - **YARA Controller:** disk + memory scans; each disk finding has a **SHA-256** (click-to-copy); **Check VT** button. Findings carry a **status** (`active|quarantined|whitelisted|ignored|deleted`) shown as a badge with status-aware action buttons: **Whitelist / Quarantine / Delete / Ignore** (active) and **Restore / Un-whitelist** etc. Actions update status (rows are NOT deleted) and **propagate to sibling findings of the same file** (by location/hash) — so multiple rule matches on one file move together and acting on an already-removed file is graceful (marked, not errored). A **Managed Findings** panel gives categorised views (Quarantined / Whitelisted / Ignored / Deleted, with counts), each with relevant follow-up actions. Whitelisted hashes are skipped by future scans (`yara_whitelist` table). Quarantine moves files to `YARA_QUARANTINE_DIR`.
   - Routes: `/yara/finding/action` (delete|quarantine|whitelist|ignore|restore), `/yara/managed/<status>`, `/yara/managed_counts`, `/yara/vt/hash/<sha>`, `/yara/vt/ip/<ip>`. DB: `yara_findings.status` + `sha256` columns, `yara_whitelist` table, status setters that propagate by location/hash.
 - **Dashboard:** live **in-place AJAX refresh** (no full-page reload — stat cards + 3 tables update via JSON, paused while a modal is open or a field is focused). Tables show attempts, country, ISP, abuse score, VT. Alert-breakdown chart labels: `geo_block`→"Geo Blocked", `whitelist_block`→"Non-Whitelisted IPs".
+- **Preview tables + full-list pages:** every growing table/log shows only the **latest 5 rows inline** with a **"View all" button** that opens a clean, searchable, client-side-paginated full-list page in a **new tab** (`/list/<key>`). Covered: dashboard (alerts, blocked IPs, failed logins), Advanced Security (geo + whitelist event logs), YARA (scan history). Row-rendering markup is shared in `static/js/tables.js` (`TABLE_RENDERERS` + `initListPage`) so the 5-row preview and the full view render identically. List page = `templates/list.html`; registry = `LIST_VIEWS` in `dashboard.py`. Backed by `?limit=` on `/api/{alerts,blocked,events}`, plus new `/api/geo_events` (annotates each row with `is_blocked`) and `/api/yara_scans`. Block/unblock forms carry a `next` field so an action on a list page returns to that list. No DB migration; `get_blocked_ips(limit=…)` gained an optional cap.
 - **Daily ML-ready report:** `daily_report.py` → `logs/rdpshield_report_<date>.json` (per-attacker aggregation; scheduled 23:55).
 - **Tooling:** `verify_setup.py` (config/DB health check, masks secrets), `backfill_geo.py` (one-time geo backfill), `TESTING.md` (attack test plan).
 
@@ -135,9 +136,11 @@ xcopy "Z:\countries.py"  "C:\RDPShield\" /Y
 # Frontend only (browser hard-refresh Ctrl+F5 is enough, no restart needed)
 xcopy "Z:\static\style.css"       "C:\RDPShield\static\" /Y
 xcopy "Z:\static\js\modal.js"     "C:\RDPShield\static\js\" /Y
+xcopy "Z:\static\js\tables.js"    "C:\RDPShield\static\js\" /Y
 xcopy "Z:\templates\index.html"   "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\geo.html"     "C:\RDPShield\templates\" /Y
 xcopy "Z:\templates\yara.html"    "C:\RDPShield\templates\" /Y
+xcopy "Z:\templates\list.html"    "C:\RDPShield\templates\" /Y
 ```
 
 ---

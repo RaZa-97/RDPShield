@@ -722,6 +722,86 @@ code {
 }
 
 /* =========================================================================
+   "VIEW ALL" LINK + STANDALONE FULL-LIST PAGE (list.html)
+   ========================================================================= */
+
+/* Sits under each previewed (5-row) table on the dashboard / geo / yara pages. */
+.btn-viewall {
+    display: inline-block;
+    margin-top: 14px;
+    padding: 8px 16px;
+    background: var(--brand-light);
+    color: var(--brand-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.85em;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+.btn-viewall:hover {
+    background: var(--brand);
+    color: #fff;
+    border-color: var(--brand);
+}
+
+.btn-back {
+    align-self: center;
+    padding: 8px 16px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.9em;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+.btn-back:hover { background: var(--surface-alt); }
+
+.list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.list-search { max-width: 340px; flex: 1 1 240px; }
+.list-info { color: var(--muted); font-size: 0.85em; white-space: nowrap; }
+
+/* Pagination footer */
+.pager {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    margin-top: 18px;
+}
+.pager .pg {
+    min-width: 34px;
+    padding: 6px 11px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+.pager .pg:hover:not(:disabled):not(.active) { background: var(--surface-alt); }
+.pager .pg.active {
+    background: var(--brand);
+    color: #fff;
+    border-color: var(--brand);
+    cursor: default;
+}
+.pager .pg:disabled { opacity: 0.45; cursor: default; }
+.pager .pg-gap { color: var(--muted); padding: 0 2px; }
+
+/* =========================================================================
    YARA CONTROLLER PAGE
    ========================================================================= */
 

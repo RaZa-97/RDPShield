@@ -63,13 +63,17 @@ app.secret_key = "rdpshield_secret_key"  # Needed for flash messages
 # MAIN DASHBOARD PAGE
 # =========================================================================
 
+# Number of rows each growing table shows inline before "View all".
+DASHBOARD_PREVIEW = 5
+
+
 @app.route("/")
 def index():
     """Main dashboard page."""
     stats = get_dashboard_stats()
-    alerts = get_recent_alerts(limit=50)
-    blocked = get_blocked_ips()
-    recent = get_recent_failed_logins(limit=50)
+    alerts = get_recent_alerts(limit=DASHBOARD_PREVIEW)
+    blocked = get_blocked_ips(limit=DASHBOARD_PREVIEW)
+    recent = get_recent_failed_logins(limit=DASHBOARD_PREVIEW)
     trend = get_failed_login_trend(days=14)
     alert_breakdown_30d = get_alert_type_breakdown(days=30)
     top_countries = get_top_attacker_countries(limit=20)
@@ -83,6 +87,37 @@ def index():
         trend=trend,
         alert_breakdown_30d=alert_breakdown_30d,
         top_countries=top_countries,
+    )
+
+
+# =========================================================================
+# FULL-LIST PAGES (opened in a new tab from the "View all" buttons)
+# =========================================================================
+
+# key -> standalone list page config. `renderer` matches a TABLE_RENDERERS
+# entry in static/js/tables.js; `api` is the JSON endpoint it pages through.
+LIST_VIEWS = {
+    "alerts":           {"title": "All Alerts",           "renderer": "alerts",       "api": "/api/alerts?limit=2000",                       "back": "/"},
+    "blocked":          {"title": "All Blocked IPs",       "renderer": "blocked",      "api": "/api/blocked?limit=2000",                      "back": "/"},
+    "events":           {"title": "Recent Failed Logins",  "renderer": "recent",       "api": "/api/events?limit=2000",                       "back": "/"},
+    "geo_events":       {"title": "Geolocation Event Log", "renderer": "geo",          "api": "/api/geo_events?category=geo&limit=2000",      "back": "/geo"},
+    "whitelist_events": {"title": "Whitelist Event Log",   "renderer": "geo",          "api": "/api/geo_events?category=whitelist&limit=2000", "back": "/geo"},
+    "yara_scans":       {"title": "Scan History",          "renderer": "yara_history", "api": "/api/yara_scans?limit=2000",                   "back": "/yara"},
+}
+
+
+@app.route("/list/<key>")
+def list_view(key):
+    """Generic clean, searchable, paginated full-list page in its own tab."""
+    cfg = LIST_VIEWS.get(key)
+    if not cfg:
+        return "Unknown list", 404
+    return render_template(
+        "list.html",
+        title=cfg["title"],
+        renderer=cfg["renderer"],
+        api_url=cfg["api"],
+        back_url=cfg["back"],
     )
 
 
@@ -180,6 +215,14 @@ def geo_remove_ip(ip_address):
 # EXISTING API ENDPOINTS + UNBLOCK
 # =========================================================================
 
+def _req_limit(default):
+    """Read a ?limit= query param, clamped to a sane range."""
+    try:
+        return max(1, min(int(request.args.get("limit", default)), 5000))
+    except (TypeError, ValueError):
+        return default
+
+
 @app.route("/api/stats")
 def api_stats():
     return jsonify(get_dashboard_stats())
@@ -187,17 +230,35 @@ def api_stats():
 
 @app.route("/api/alerts")
 def api_alerts():
-    return jsonify(get_recent_alerts(limit=50))
+    return jsonify(get_recent_alerts(limit=_req_limit(50)))
 
 
 @app.route("/api/blocked")
 def api_blocked():
-    return jsonify(get_blocked_ips())
+    return jsonify(get_blocked_ips(limit=_req_limit(100)))
 
 
 @app.route("/api/events")
 def api_events():
-    return jsonify(get_recent_failed_logins(limit=100))
+    return jsonify(get_recent_failed_logins(limit=_req_limit(100)))
+
+
+@app.route("/api/geo_events")
+def api_geo_events():
+    """Geo / whitelist event log as JSON. Each row is annotated with
+    `is_blocked` so the full-list view knows whether to offer Unblock."""
+    category = request.args.get("category")  # "geo" | "whitelist" | None
+    events = get_geo_events(limit=_req_limit(100), category=category)
+    active = {b["ip_address"] for b in get_blocked_ips()}
+    for e in events:
+        e["is_blocked"] = e.get("source_ip") in active
+    return jsonify(events)
+
+
+@app.route("/api/yara_scans")
+def api_yara_scans():
+    from database import get_yara_history
+    return jsonify(get_yara_history(limit=_req_limit(200)))
 
 
 @app.route("/api/geo_stats")
@@ -246,7 +307,7 @@ def block():
             print(f"[DASHBOARD] Manually blocked {ip} ({reason})")
         else:
             print(f"[DASHBOARD] Could not block {ip} (whitelisted, already blocked, or disabled)")
-    return redirect(url_for("index"))
+    return redirect(request.form.get("next") or url_for("index"))
 
 
 if __name__ == "__main__":
