@@ -1468,3 +1468,76 @@ footer {
     color: var(--muted);
 }
 .age-pill.age-due { background: rgba(234, 88, 12, 0.14); color: var(--high); border-color: transparent; }
+
+/* =========================================================================
+   CUSTOM ICONS, COMPACT ACTION BUTTONS, NOTIFICATION BELL  (v3.5)
+   ========================================================================= */
+
+/* Heading icons (custom SVG set from _icons.html) */
+.section h2, .panel h2, .section h3, .yara-head h1 { display: flex; align-items: center; gap: 9px; }
+.hicon { width: 18px; height: 18px; flex: 0 0 auto; color: var(--brand); }
+.section h3 .hicon { width: 16px; height: 16px; }
+
+/* Compact "small button" treatment for View all / Export CSV */
+.btn-viewall, .btn-export {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 0;
+    padding: 6px 11px;
+    font-size: 0.78rem;
+    border-radius: 7px;
+    line-height: 1;
+}
+.btn-viewall .hicon, .btn-export .hicon { width: 14px; height: 14px; color: inherit; }
+.btn-viewall:hover .hicon, .btn-export:hover .hicon { color: inherit; }
+
+/* Notification bell + dropdown */
+.notif-wrap { position: relative; }
+.btn-bell {
+    position: relative;
+    width: 36px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.btn-bell:hover { border-color: var(--brand); color: var(--brand); }
+.bell-ico { width: 18px; height: 18px; }
+.notif-badge {
+    position: absolute; top: -6px; right: -6px;
+    min-width: 18px; height: 18px; padding: 0 4px;
+    background: var(--critical); color: #fff;
+    border-radius: 10px;
+    font-size: 0.66rem; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 2px var(--surface);
+}
+.notif-panel {
+    position: absolute; right: 0; top: 46px;
+    width: 340px; max-height: 440px; overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+    display: none; z-index: 60;
+}
+.notif-panel.show { display: block; }
+.notif-head { padding: 12px 16px; font-weight: 700; font-size: 0.9rem; border-bottom: 1px solid var(--border); }
+.notif-list { padding: 2px 0; }
+.notif-item {
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.82rem;
+}
+.notif-ip { font-family: 'Consolas', monospace; color: var(--brand-dark); font-weight: 600; }
+.notif-meta { width: 100%; color: var(--muted); font-size: 0.74rem; }
+.notif-empty { padding: 20px 16px; text-align: center; color: var(--muted); font-size: 0.85rem; }
+.notif-foot {
+    display: block; text-align: center; padding: 11px;
+    color: var(--brand); text-decoration: none; font-weight: 600; font-size: 0.82rem;
+    border-top: 1px solid var(--border);
+}
+.notif-foot:hover { background: var(--surface-alt); }

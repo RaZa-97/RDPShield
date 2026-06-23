@@ -1,3 +1,4 @@
+{% from '_icons.html' import icon %}
 <!DOCTYPE html>
 <html lang="en" data-theme="{{ theme }}">
 <head>
@@ -25,7 +26,7 @@
         {% endwith %}
 
         <div class="section">
-            <h2>&#10133; Add User</h2>
+            <h2>{{ icon('plus') }} Add User</h2>
             <p class="section-desc">New users set up their authenticator app the first time they sign in. A phone number (Notify.lk format, e.g. <code>94771234567</code>) enables SMS password resets.</p>
             <form method="POST" action="/users/add" class="inline-form">
                 <input type="text" name="username" placeholder="Username" class="form-input" required autocomplete="off">
@@ -40,7 +41,7 @@
         </div>
 
         <div class="section">
-            <h2>&#128100; Accounts</h2>
+            <h2>{{ icon('users') }} Accounts</h2>
             <table>
                 <thead>
                     <tr><th>Username</th><th>Role</th><th>Status</th><th>MFA</th><th>Phone</th><th>Last Login</th><th>Actions</th></tr>

@@ -1,3 +1,4 @@
+{% from '_icons.html' import icon %}
 <!DOCTYPE html>
 <html lang="en" data-theme="{{ theme }}">
 <head>
@@ -24,7 +25,7 @@
         {% if key_status %}
         {% set any_due = key_status | selectattr('due') | list | length > 0 %}
         <div class="rotate-banner {% if any_due %}rotate-due{% endif %}">
-            <span class="rotate-icon">&#128273;</span>
+            <span class="rotate-icon">{{ icon('key') }}</span>
             <div class="rotate-text">
                 <strong>API key rotation</strong> &mdash;
                 {% for s in key_status %}
@@ -33,7 +34,7 @@
                 {% endfor %}
                 {% if any_due %}<span class="rotate-note">— overdue (&ge; {{ rotation_interval }}d). Time to rotate.</span>{% endif %}
             </div>
-            <a href="/settings" class="btn-viewall" style="margin:0;">Rotate in Settings &rarr;</a>
+            <a href="/settings" class="btn-viewall" style="margin:0;">{{ icon('key') }} Rotate in Settings</a>
         </div>
         {% endif %}
 
@@ -81,7 +82,7 @@
 
         <!-- Top Attacker Countries -->
         <div class="section">
-            <h2>&#127758; Top Attacker Countries</h2>
+            <h2>{{ icon('globe') }} Top Attacker Countries</h2>
             {% if top_countries %}
             <div class="country-list">
                 {% set max_count = top_countries[0].cnt %}
@@ -102,7 +103,7 @@
 
         <!-- Active Alerts -->
         <div class="section">
-            <h2>&#9888; Recent Alerts</h2>
+            <h2>{{ icon('alert') }} Recent Alerts</h2>
             <div id="alertsSection">
             {% if alerts %}
             <table>
@@ -152,14 +153,14 @@
             {% endif %}
             </div>
             <div class="table-actions">
-                <a href="/list/alerts" target="_blank" class="btn-viewall">View all alerts ({{ stats.total_alerts }}) &rarr;</a>
-                <a href="/export/alerts.csv" class="btn-export">&#11015; Export CSV</a>
+                <a href="/list/alerts" target="_blank" class="btn-viewall">{{ icon('expand') }} View all alerts ({{ stats.total_alerts }})</a>
+                <a href="/export/alerts.csv" class="btn-export">{{ icon('download') }} CSV</a>
             </div>
         </div>
 
         <!-- Blocked IPs -->
         <div class="section">
-            <h2>&#128683; Blocked IPs</h2>
+            <h2>{{ icon('ban') }} Blocked IPs</h2>
 
             <!-- Manual block form (admins only) -->
             {% if is_admin %}
@@ -223,14 +224,14 @@
             {% endif %}
             </div>
             <div class="table-actions">
-                <a href="/list/blocked" target="_blank" class="btn-viewall">View all blocked IPs ({{ stats.total_blocked }}) &rarr;</a>
-                <a href="/export/blocked.csv" class="btn-export">&#11015; Export CSV</a>
+                <a href="/list/blocked" target="_blank" class="btn-viewall">{{ icon('expand') }} View all blocked IPs ({{ stats.total_blocked }})</a>
+                <a href="/export/blocked.csv" class="btn-export">{{ icon('download') }} CSV</a>
             </div>
         </div>
 
         <!-- Recent Failed Logins -->
         <div class="section">
-            <h2>&#128196; Recent Failed Logins</h2>
+            <h2>{{ icon('log') }} Recent Failed Logins</h2>
             <div id="recentSection">
             {% if recent %}
             <table>
@@ -284,8 +285,8 @@
             {% endif %}
             </div>
             <div class="table-actions">
-                <a href="/list/events" target="_blank" class="btn-viewall">View all failed logins ({{ stats.total_failed_logins }}) &rarr;</a>
-                <a href="/export/events.csv" class="btn-export">&#11015; Export CSV</a>
+                <a href="/list/events" target="_blank" class="btn-viewall">{{ icon('expand') }} View all failed logins ({{ stats.total_failed_logins }})</a>
+                <a href="/export/events.csv" class="btn-export">{{ icon('download') }} CSV</a>
             </div>
         </div>
 

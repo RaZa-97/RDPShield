@@ -1,3 +1,4 @@
+{% from '_icons.html' import icon %}
 <!DOCTYPE html>
 <html lang="en" data-theme="{{ theme }}">
 <head>
@@ -50,7 +51,7 @@
   </div>
 
   <div class="panel">
-    <h2>Scan History</h2>
+    <h2>{{ icon('scan') }} Scan History</h2>
     <table>
       <thead>
         <tr><th>ID</th><th>Time</th><th>Trigger</th><th>Findings</th><th>Critical</th><th>Worst</th><th>Duration</th></tr>
@@ -60,13 +61,13 @@
       </tbody>
     </table>
     <div class="table-actions">
-      <a href="/list/yara_scans" target="_blank" class="btn-viewall">View full scan history &rarr;</a>
-      <a href="/export/yara_scans.csv" class="btn-export">&#11015; Export CSV</a>
+      <a href="/list/yara_scans" target="_blank" class="btn-viewall">{{ icon('expand') }} View full scan history</a>
+      <a href="/export/yara_scans.csv" class="btn-export">{{ icon('download') }} CSV</a>
     </div>
   </div>
 
   <div class="panel" id="findingsPanel" style="display:none;">
-    <h2 id="findingsTitle">Findings</h2>
+    <h2 id="findingsTitle">{{ icon('findings') }} Findings</h2>
     <table>
       <thead>
         <tr><th>Severity</th><th>Rule</th><th>Type</th><th>Location</th><th>SHA-256</th><th>VirusTotal</th><th>Status</th><th>Actions</th></tr>
@@ -76,7 +77,7 @@
   </div>
 
   <div class="panel">
-    <h2>Managed Findings</h2>
+    <h2>{{ icon('managed') }} Managed Findings</h2>
     <p class="muted" style="margin-top:-6px;">Files you've actioned. Open a category to review or change the action.</p>
     <div class="btn-row">
       <button class="btn btn-disk" onclick="loadManaged('quarantined')">Quarantined (<span id="cnt-quarantined">0</span>)</button>

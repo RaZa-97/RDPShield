@@ -1,0 +1,51 @@
+{#- RDPShield custom line-art icon set (tailored, currentColor, themeable).
+    Usage:  {% from '_icons.html' import icon %}  then  {{ icon('shield') }}
+    Sized via .hicon / .bi in style.css. -#}
+{% macro icon(name, cls='hicon') -%}
+{%- set a = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"' -%}
+{%- if name == 'shield' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M12 2.5l7.5 3.2v5.1c0 4.7-3.2 8.1-7.5 9.7-4.3-1.6-7.5-5-7.5-9.7V5.7z"/></svg>
+{%- elif name == 'globe' -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.4 2.6 15.6 0 18c-2.6-2.4-2.6-15.6 0-18z"/></svg>
+{%- elif name == 'check' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M12 2.5l7.5 3.2v5.1c0 4.7-3.2 8.1-7.5 9.7-4.3-1.6-7.5-5-7.5-9.7V5.7z"/><path d="M8.6 12l2.4 2.4 4.4-4.6"/></svg>
+{%- elif name == 'log' -%}
+<svg class="{{ cls }}" {{ a }}><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+{%- elif name == 'lock' -%}
+<svg class="{{ cls }}" {{ a }}><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2"/></svg>
+{%- elif name == 'alert' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M12 3.2l9.3 16.1H2.7z"/><path d="M12 9.5v4.5M12 17h.01"/></svg>
+{%- elif name == 'ban' -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>
+{%- elif name == 'theme' -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+{%- elif name == 'key' -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="8" cy="16" r="3.5"/><path d="M10.5 13.5L20 4M16.5 4H20v3.5M14 6.5l2 2"/></svg>
+{%- elif name == 'rotate' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/></svg>
+{%- elif name == 'phone' -%}
+<svg class="{{ cls }}" {{ a }}><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>
+{%- elif name == 'bell' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M6 9a6 6 0 0 1 12 0c0 4.5 1.8 5.8 1.8 5.8H4.2S6 13.5 6 9z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+{%- elif name == 'trash' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M4 7h16M9.5 7V5.2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7M6.5 7l.9 12.2a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4L18.5 7"/></svg>
+{%- elif name == 'audit' -%}
+<svg class="{{ cls }}" {{ a }}><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9.5 4h5v2.6h-5z"/><path d="M8.6 13l2 2 4-4"/></svg>
+{%- elif name == 'plus' -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+{%- elif name == 'users' -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.2a5.6 5.6 0 0 1 11 0"/><path d="M15.8 5.2a3.1 3.1 0 0 1 0 6M16.5 19.2a5.6 5.6 0 0 0-2.6-4.7"/></svg>
+{%- elif name == 'scan' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l5.5-5.5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+{%- elif name == 'findings' -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.6-4.6"/></svg>
+{%- elif name == 'managed' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M3 7.5a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 13l2 2 4-4"/></svg>
+{%- elif name == 'download' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M12 3v12M7.5 11l4.5 4.5 4.5-4.5M5 20.5h14"/></svg>
+{%- elif name == 'expand' -%}
+<svg class="{{ cls }}" {{ a }}><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01M8 6h12.5M8 12h12.5M8 18h12.5"/></svg>
+{%- else -%}
+<svg class="{{ cls }}" {{ a }}><circle cx="12" cy="12" r="9"/></svg>
+{%- endif -%}
+{%- endmacro %}

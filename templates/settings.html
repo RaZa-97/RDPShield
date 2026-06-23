@@ -1,3 +1,4 @@
+{% from '_icons.html' import icon %}
 <!DOCTYPE html>
 <html lang="en" data-theme="{{ theme }}">
 <head>
@@ -26,7 +27,7 @@
 
         <!-- THEME -->
         <div class="section">
-            <h2>&#127912; Appearance</h2>
+            <h2>{{ icon('theme') }} Appearance</h2>
             <p class="section-desc">Theme is saved to your account. You can also toggle it from the icon in the top bar.</p>
             <div class="btn-row">
                 <form method="POST" action="/theme/dark" style="display:inline;"><input type="hidden" name="next" value="/settings">
@@ -38,7 +39,7 @@
 
         <!-- API KEYS -->
         <div class="section">
-            <h2>&#128273; API Keys</h2>
+            <h2>{{ icon('key') }} API Keys</h2>
             <p class="section-desc">Keys are stored in the database and override <code>config.py</code> at runtime. Only the last 4 characters are shown. Leave a field blank to keep it unchanged; enter <code>-</code> to clear it (revert to config.py).</p>
             <form method="POST" action="/settings/keys">
                 <table>
@@ -79,7 +80,7 @@
                 <button type="submit" class="btn-add" style="margin-top:14px;">Save keys</button>
             </form>
 
-            <h3 style="margin-top:22px;">&#128260; Rotation reminders</h3>
+            <h3 style="margin-top:22px;">{{ icon('rotate') }} Rotation reminders</h3>
             <p class="section-desc">Get an SMS + dashboard reminder to rotate keys on a schedule. Key ages:
                 {% for s in key_status %}
                 <span class="age-pill {% if s.due %}age-due{% endif %}">{{ s.label }}:
@@ -100,7 +101,7 @@
 
         <!-- ALERT RECIPIENTS -->
         <div class="section">
-            <h2>&#128241; Alert Recipients (SMS)</h2>
+            <h2>{{ icon('phone') }} Alert Recipients (SMS)</h2>
             <p class="section-desc">Every active number here receives breach/block alert SMS (Notify.lk format, e.g. <code>94771234567</code>). Per-user verification numbers are set on the Users page.</p>
             <form method="POST" action="/settings/recipients/add" class="inline-form">
                 <input type="text" name="label" placeholder="Label (e.g. SOC on-call)" class="form-input" autocomplete="off">
@@ -137,7 +138,7 @@
 
         <!-- SMS ALERT TYPES -->
         <div class="section">
-            <h2>&#128276; SMS Alert Types</h2>
+            <h2>{{ icon('bell') }} SMS Alert Types</h2>
             <p class="section-desc">Choose which detections send an SMS. (Breach-lockout alerts to admins are always sent.)</p>
             <form method="POST" action="/settings/sms_types">
                 <div class="check-grid">
@@ -154,7 +155,7 @@
 
         <!-- DATA RETENTION -->
         <div class="section">
-            <h2>&#128465; Data Retention</h2>
+            <h2>{{ icon('trash') }} Data Retention</h2>
             <p class="section-desc">Auto-purge target for old failed logins / alerts / geo events. <code>0</code> = keep forever. Purge runs when you click below (or wire it into a scheduled task).</p>
             <form method="POST" action="/settings/retention" class="inline-form">
                 <input type="number" name="retention_days" value="{{ retention_days }}" min="0" class="form-input" style="max-width:140px;">
@@ -170,7 +171,7 @@
 
         <!-- AUDIT LOG -->
         <div class="section">
-            <h2>&#128220; Admin Audit Log</h2>
+            <h2>{{ icon('audit') }} Admin Audit Log</h2>
             <p class="section-desc">Recent admin &amp; security actions.</p>
             {% if audit %}
             <table>
@@ -188,8 +189,8 @@
                 </tbody>
             </table>
             <div class="table-actions">
-                <a href="/list/audit" target="_blank" class="btn-viewall">View full audit log &rarr;</a>
-                <a href="/export/audit.csv" class="btn-export">&#11015; Export CSV</a>
+                <a href="/list/audit" target="_blank" class="btn-viewall">{{ icon('expand') }} View full audit log</a>
+                <a href="/export/audit.csv" class="btn-export">{{ icon('download') }} CSV</a>
             </div>
             {% else %}
             <p class="empty">No audit entries yet.</p>

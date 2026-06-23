@@ -1,3 +1,4 @@
+{% from '_icons.html' import icon %}
 <!-- Shared operations-console top bar (light theme).
      Expects `active` (dashboard|geo|yara|users) in context; `current_user`,
      `is_admin` and `login_at` come from the global context processor. -->
@@ -16,6 +17,17 @@
         <span class="live-pill"><span class="live-dot"></span>LIVE</span>
         <span class="topbar-clock" id="topbarClock">--:--:-- UTC</span>
         {% if current_user %}
+        <div class="notif-wrap">
+            <button type="button" class="btn-bell" id="bellBtn" title="Notifications">
+                {{ icon('bell', 'bell-ico') }}
+                <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+            </button>
+            <div class="notif-panel" id="notifPanel">
+                <div class="notif-head">Notifications</div>
+                <div class="notif-list" id="notifList"><div class="notif-empty">Loading…</div></div>
+                <a href="/list/alerts" target="_blank" class="notif-foot">View all alerts</a>
+            </div>
+        </div>
         <form method="POST" action="/theme/{{ 'light' if theme == 'dark' else 'dark' }}" class="theme-toggle-form">
             <input type="hidden" name="next" value="{{ request.path }}">
             <button type="submit" class="btn-theme" title="Switch to {{ 'light' if theme == 'dark' else 'dark' }} theme">
@@ -64,5 +76,57 @@
         }
         tick();
         setInterval(tick, 1000);
+    })();
+
+    // --- Notification bell: recent alerts, unread tracked in localStorage ---
+    (function () {
+        const btn = document.getElementById('bellBtn');
+        if (!btn) return;
+        const panel = document.getElementById('notifPanel');
+        const badge = document.getElementById('notifBadge');
+        const list = document.getElementById('notifList');
+        const SEEN = 'rdpshield_notif_seen';
+        const esc = t => (t == null ? '' : String(t)).replace(/[&<>"]/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        let items = [];
+
+        function newest() { return items.length ? (items[0].timestamp || '') : ''; }
+
+        function render() {
+            if (!items.length) {
+                list.innerHTML = '<div class="notif-empty">No recent alerts.</div>';
+            } else {
+                list.innerHTML = items.map(a => {
+                    const t = (a.timestamp || '').slice(0, 19).replace('T', ' ');
+                    const loc = esc(a.geo_country || '');
+                    return '<div class="notif-item">'
+                        + '<span class="badge badge-' + esc(a.alert_type) + '">' + esc(a.alert_type) + '</span>'
+                        + '<span class="notif-ip">' + esc(a.source_ip) + '</span>'
+                        + '<div class="notif-meta">' + esc(t) + (loc ? ' · ' + loc : '') + '</div></div>';
+                }).join('');
+            }
+            const seen = localStorage.getItem(SEEN) || '';
+            const unread = items.filter(a => (a.timestamp || '') > seen).length;
+            if (unread > 0) { badge.style.display = 'inline-flex'; badge.textContent = unread > 9 ? '9+' : unread; }
+            else { badge.style.display = 'none'; }
+        }
+
+        function load() {
+            fetch('/api/alerts?limit=15').then(r => r.json())
+                .then(rows => { items = Array.isArray(rows) ? rows : []; render(); })
+                .catch(() => {});
+        }
+
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const open = panel.classList.toggle('show');
+            if (open && items.length) { localStorage.setItem(SEEN, newest()); badge.style.display = 'none'; }
+        });
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.notif-wrap')) panel.classList.remove('show');
+        });
+
+        load();
+        setInterval(load, 30000);
     })();
 </script>

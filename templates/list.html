@@ -1,3 +1,4 @@
+{% from '_icons.html' import icon %}
 <!DOCTYPE html>
 <html lang="en" data-theme="{{ theme }}">
 <head>
@@ -24,7 +25,7 @@
                 <input type="text" id="listSearch" class="form-input list-search"
                        placeholder="Search…" autocomplete="off">
                 <span class="list-info" id="listInfo">Loading…</span>
-                <a href="/export/{{ key }}.csv" class="btn-export">&#11015; Export CSV</a>
+                <a href="/export/{{ key }}.csv" class="btn-export">{{ icon('download') }} CSV</a>
             </div>
             <div id="listTable"><p class="empty">Loading…</p></div>
             <div class="pager" id="listPager"></div>
