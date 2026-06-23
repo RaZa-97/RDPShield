@@ -1046,6 +1046,16 @@ def api_geo_stats():
     return jsonify(get_geo_stats())
 
 
+@app.route("/api/trend")
+def api_trend():
+    return jsonify(get_failed_login_trend(days=14))
+
+
+@app.route("/api/alert_breakdown")
+def api_alert_breakdown():
+    return jsonify(get_alert_type_breakdown(days=30))
+
+
 @app.route("/unblock/<ip_address>", methods=["POST"])
 @auth.admin_required
 def unblock(ip_address):

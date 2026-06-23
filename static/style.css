@@ -1541,3 +1541,12 @@ footer {
     border-top: 1px solid var(--border);
 }
 .notif-foot:hover { background: var(--surface-alt); }
+
+/* Animated, glowing attacker-country bars */
+.country-bar-fill {
+    transform-origin: left center;
+    animation: growBar 1.1s cubic-bezier(.2,.8,.2,1) both;
+    box-shadow: 0 0 10px rgba(79, 124, 255, 0.45);
+}
+@keyframes growBar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+[data-theme="dark"] .country-bar-track { background: rgba(148,163,184,0.10); }
