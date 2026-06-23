@@ -405,27 +405,71 @@
         });
         {% endif %}
 
-        // ---- Per-section Allowed vs Blocked mini bar charts ----
+        // ---- Per-section Allowed vs Blocked mini bar charts (futuristic) ----
+        const css = getComputedStyle(document.documentElement);
+        const colorVar = (n) => css.getPropertyValue(n).trim();
+        const DARK = document.documentElement.getAttribute('data-theme') === 'dark';
+        const GRID = DARK ? 'rgba(148,163,184,0.12)' : '#eef1f6';
+        const TEXT = colorVar('--text');
+        const OKC = colorVar('--ok') || '#16a34a';
+        const REDC = colorVar('--critical') || '#dc2626';
+
+        function hexToRgba(hex, a) {
+            const c = hex.replace('#', '');
+            return `rgba(${parseInt(c.substr(0,2),16)},${parseInt(c.substr(2,2),16)},${parseInt(c.substr(4,2),16)},${a})`;
+        }
+        Chart.defaults.color = colorVar('--muted');
+
+        // Soft drop-shadow so bars "lift" off the panel.
+        const barGlow = {
+            id: 'barGlow',
+            beforeDatasetsDraw(ch) {
+                const c = ch.ctx; c.save();
+                c.shadowColor = DARK ? 'rgba(79,124,255,0.35)' : 'rgba(16,24,40,0.18)';
+                c.shadowBlur = 12; c.shadowOffsetY = 5;
+            },
+            afterDatasetsDraw(ch) { ch.ctx.restore(); }
+        };
+
         function miniBar(canvasId, allowed, blocked) {
             const el = document.getElementById(canvasId);
             if (!el) return;
-            new Chart(el, {
+            const ctx = el.getContext('2d');
+            const grad = (hex) => {
+                const g = ctx.createLinearGradient(0, 0, 0, 220);
+                g.addColorStop(0, hexToRgba(hex, 0.45));
+                g.addColorStop(1, hexToRgba(hex, 1));
+                return g;
+            };
+            new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: ['Allowed', 'Blocked'],
                     datasets: [{
                         data: [allowed, blocked],
-                        backgroundColor: ['#16a34a', '#dc2626'],
-                        borderRadius: 8,
-                        maxBarThickness: 70,
+                        backgroundColor: [grad(OKC), grad(REDC)],
+                        borderRadius: 10, borderSkipped: false, maxBarThickness: 80,
                     }]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#eef1f6' } } }
-                }
+                    responsive: true, maintainAspectRatio: false,
+                    animation: { duration: 900, easing: 'easeOutQuart' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: DARK ? 'rgba(8,13,26,0.96)' : 'rgba(255,255,255,0.98)',
+                            borderColor: colorVar('--brand'), borderWidth: 1, cornerRadius: 10,
+                            padding: 12, titleColor: TEXT, bodyColor: TEXT, displayColors: false,
+                            bodyFont: { size: 14, weight: '700' },
+                            callbacks: { label: (c) => '  ' + c.parsed.y + ' connection' + (c.parsed.y === 1 ? '' : 's') }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: GRID } }
+                    }
+                },
+                plugins: [barGlow]
             });
         }
         miniBar('geoChart', {{ geo_cat_stats.allowed }}, {{ geo_cat_stats.blocked }});
