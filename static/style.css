@@ -1550,3 +1550,37 @@ footer {
 }
 @keyframes growBar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 [data-theme="dark"] .country-bar-track { background: rgba(148,163,184,0.10); }
+
+/* =========================================================================
+   GLOBAL THREAT MAP (Leaflet)
+   ========================================================================= */
+.attack-map {
+    height: 380px;
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    z-index: 0;            /* keep tiles below the notification panel */
+}
+.attack-map.map-offline {
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; color: var(--muted); padding: 20px; font-size: 0.9rem;
+}
+/* Leaflet popups/tooltips themed to the console */
+.leaflet-popup-content-wrapper, .leaflet-tooltip {
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: 'Segoe UI', sans-serif;
+}
+.leaflet-popup-tip { background: var(--surface); border: 1px solid var(--border); }
+.leaflet-tooltip { font-family: 'Consolas', monospace; font-size: 0.78rem; }
+[data-theme="dark"] .leaflet-control-attribution {
+    background: rgba(8,13,26,0.7) !important; color: var(--muted) !important;
+}
+[data-theme="dark"] .leaflet-control-attribution a { color: var(--brand-dark) !important; }
+[data-theme="dark"] .leaflet-bar a {
+    background: var(--surface); color: var(--text); border-color: var(--border);
+}
+/* Soft glow on attacker markers */
+.attack-map .leaflet-interactive { filter: drop-shadow(0 0 3px rgba(79,124,255,0.5)); }

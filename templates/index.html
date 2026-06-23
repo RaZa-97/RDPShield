@@ -6,6 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RDPShield Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <!-- Leaflet (attack map) — loaded from CDN; the map degrades gracefully if
+         the viewing browser has no internet. -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -78,6 +81,13 @@
                 <p class="empty">No alerts in the last 30 days.</p>
                 {% endif %}
             </div>
+        </div>
+
+        <!-- Global Threat Map (live) -->
+        <div class="section">
+            <h2>{{ icon('globe') }} Global Threat Map</h2>
+            <p class="section-desc">Live attacker locations &mdash; marker size = attempts, colour = status (blue = seen, orange = high abuse, red = blocked). Hover for IP, click for details.</p>
+            <div id="attackMap" class="attack-map"></div>
         </div>
 
         <!-- Top Attacker Countries -->
@@ -309,6 +319,7 @@
     <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tables.js') }}"></script>
     <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         const trendData = {{ trend | tojson }};
         const alertTypeData = {{ alert_breakdown_30d | tojson }};
@@ -490,6 +501,65 @@
         };
     </script>
 
+    <!-- Live geographic attack map (Leaflet). Degrades to a message if the
+         viewing browser can't reach the CDN / tile servers. -->
+    <script>
+        let attackMap = null, mapLayer = null;
+
+        function mapMarkerColor(p) {
+            if (p.blocked) return '#ff5a6a';
+            if ((p.abuse_score || 0) >= 50) return '#ff8a3d';
+            return '#4f7cff';
+        }
+
+        function refreshMap() {
+            if (!attackMap || !mapLayer) return;
+            fetch('/api/attack_map').then(r => r.json()).then(pts => {
+                mapLayer.clearLayers();
+                (pts || []).forEach(p => {
+                    if (!p.lat && !p.lon) return;
+                    const radius = Math.min(18, 5 + Math.log2((p.attempts || 1) + 1) * 2);
+                    const col = mapMarkerColor(p);
+                    const m = L.circleMarker([p.lat, p.lon], {
+                        radius: radius, color: col, weight: 1.5,
+                        fillColor: col, fillOpacity: 0.35
+                    });
+                    const loc = (p.city ? p.city + ', ' : '') + (p.country || '');
+                    m.bindTooltip((p.ip || '') + (p.country ? ' · ' + p.country : ''));
+                    m.bindPopup('<b>' + (p.ip || '') + '</b><br>' + loc
+                        + '<br>Attempts: ' + (p.attempts || 0)
+                        + (p.blocked ? ' · <span style="color:#ff5a6a;font-weight:700">BLOCKED</span>' : '')
+                        + '<br>Abuse: ' + (p.abuse_score == null ? '—' : p.abuse_score + '%')
+                        + (p.isp ? '<br>' + p.isp : ''));
+                    m.addTo(mapLayer);
+                });
+            }).catch(() => {});
+        }
+        window.refreshMap = refreshMap;
+
+        (function initMap() {
+            const el = document.getElementById('attackMap');
+            if (!el) return;
+            if (typeof L === 'undefined') {
+                el.classList.add('map-offline');
+                el.innerHTML = '<span>Map unavailable — this browser can\'t reach the map CDN. '
+                    + 'The dashboard works fine; the map just needs internet here.</span>';
+                return;
+            }
+            attackMap = L.map('attackMap', { worldCopyJump: true, zoomControl: true, minZoom: 1 })
+                .setView([20, 5], 2);
+            const url = DARK
+                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+            L.tileLayer(url, {
+                maxZoom: 8, subdomains: 'abcd',
+                attribution: '&copy; OpenStreetMap &copy; CARTO'
+            }).addTo(attackMap);
+            mapLayer = L.layerGroup().addTo(attackMap);
+            refreshMap();
+        })();
+    </script>
+
     <!-- Live in-place refresh: updates the stat cards and the three tables
          via the JSON API WITHOUT reloading the page, so scroll position,
          open forms, and confirm dialogs are never disturbed. Updates pause
@@ -520,6 +590,7 @@
                 const bS = document.getElementById('blockedSection'); if (bS) bS.innerHTML = buildBlocked(bl);
                 const rS = document.getElementById('recentSection'); if (rS) rS.innerHTML = buildRecent(rc);
                 if (window.updateCharts) window.updateCharts(tr, br);
+                if (window.refreshMap) window.refreshMap();
             }).catch(() => { /* keep last view on transient error */ });
         }
         setInterval(liveRefresh, 10000);

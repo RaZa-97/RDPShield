@@ -38,6 +38,7 @@ from database import (
     get_failed_login_trend,
     get_alert_type_breakdown,
     get_top_attacker_countries,
+    get_attack_map_points,
     get_yara_history,
     log_alert,
     # Geo functions
@@ -1054,6 +1055,11 @@ def api_trend():
 @app.route("/api/alert_breakdown")
 def api_alert_breakdown():
     return jsonify(get_alert_type_breakdown(days=30))
+
+
+@app.route("/api/attack_map")
+def api_attack_map():
+    return jsonify(get_attack_map_points(limit=500))
 
 
 @app.route("/unblock/<ip_address>", methods=["POST"])

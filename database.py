@@ -149,9 +149,17 @@ def init_db():
             city TEXT DEFAULT '',
             isp TEXT DEFAULT '',
             country_code TEXT DEFAULT '',
+            lat REAL DEFAULT 0,
+            lon REAL DEFAULT 0,
             cached_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Migrate older installs that pre-date lat/lon (for the attack map).
+    _gc_cols = {r["name"] for r in cursor.execute("PRAGMA table_info(geo_cache)").fetchall()}
+    if "lat" not in _gc_cols:
+        cursor.execute("ALTER TABLE geo_cache ADD COLUMN lat REAL DEFAULT 0")
+    if "lon" not in _gc_cols:
+        cursor.execute("ALTER TABLE geo_cache ADD COLUMN lon REAL DEFAULT 0")
 
     # Table 8: Geo events log
     # Logs every geo-checked connection with the result (allowed/blocked)
@@ -728,6 +736,36 @@ def get_alert_type_breakdown(days=30):
     return breakdown
 
 
+def get_attack_map_points(limit=500):
+    """
+    Attacker locations for the dashboard map: every IP we've alerted on OR
+    blocked that has cached lat/lon. Each point carries attempt count, abuse
+    score, and whether it's currently blocked, so the map can size/colour it.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT gc.ip_address AS ip, gc.lat, gc.lon, gc.country, gc.city, gc.isp,
+               (SELECT COUNT(*) FROM failed_logins f WHERE f.source_ip = gc.ip_address) AS attempts,
+               (SELECT a.abuse_score FROM alerts a WHERE a.source_ip = gc.ip_address
+                ORDER BY a.id DESC LIMIT 1) AS abuse_score,
+               (SELECT COUNT(*) FROM blocked_ips b
+                WHERE b.ip_address = gc.ip_address AND b.is_active = 1) AS blocked
+        FROM geo_cache gc
+        WHERE (gc.lat <> 0 OR gc.lon <> 0)
+          AND gc.ip_address IN (
+              SELECT source_ip FROM alerts
+              UNION SELECT ip_address FROM blocked_ips
+              UNION SELECT source_ip FROM failed_logins
+          )
+        ORDER BY attempts DESC
+        LIMIT ?
+    """, (limit,))
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
 def get_top_attacker_countries(limit=20):
     """
     Countries of every currently-blocked IP, counted and sorted high to low,
@@ -942,28 +980,30 @@ def get_cached_geo(ip_address):
     return dict(row) if row else None
 
 
-def cache_geo(ip_address, country="", city="", isp="", country_code=""):
+def cache_geo(ip_address, country="", city="", isp="", country_code="",
+              lat=0, lon=0):
     """
     Store geolocation data for an IP in the cache.
     Next time we see this IP, we won't need to call ip-api.com again.
+    lat/lon power the dashboard attack map.
     """
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
             INSERT INTO geo_cache
-                (ip_address, country, city, isp, country_code)
-            VALUES (?, ?, ?, ?, ?)
-        """, (ip_address, country, city, isp, country_code))
+                (ip_address, country, city, isp, country_code, lat, lon)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (ip_address, country, city, isp, country_code, lat, lon))
         conn.commit()
     except sqlite3.IntegrityError:
         # Already cached - update it
         cursor.execute("""
             UPDATE geo_cache
             SET country = ?, city = ?, isp = ?, country_code = ?,
-                cached_at = CURRENT_TIMESTAMP
+                lat = ?, lon = ?, cached_at = CURRENT_TIMESTAMP
             WHERE ip_address = ?
-        """, (country, city, isp, country_code, ip_address))
+        """, (country, city, isp, country_code, lat, lon, ip_address))
         conn.commit()
     conn.close()
 

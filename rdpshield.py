@@ -141,6 +141,8 @@ def get_ip_geolocation(ip_address):
             city=geo.get("city", ""),
             isp=geo.get("isp", ""),
             country_code=geo.get("country_code", ""),
+            lat=geo.get("lat", 0),
+            lon=geo.get("lon", 0),
         )
         return geo
 
