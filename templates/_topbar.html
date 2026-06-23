@@ -5,7 +5,9 @@
 <script>
     window.IS_ADMIN = {{ 'true' if is_admin else 'false' }};
     window.LOGIN_AT = "{{ login_at or '' }}";
+    window.CSRF_TOKEN = "{{ csrf_token }}";
 </script>
+<script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
 
 <nav class="topbar">
     <a href="/" class="nav-brand">

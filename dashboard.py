@@ -18,9 +18,10 @@ Access: http://SERVER_IP:5000
 """
 
 import csv
+import hmac
 import io
 import os
-import random
+import secrets
 import re
 import threading
 import time
@@ -86,6 +87,7 @@ from firewall import unblock_ip, block_ip
 from alerts import process_alert_enrichment, send_sms_to
 from config import DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_DEBUG
 from countries import COUNTRY_NAMES
+import config
 import auth
 import settings
 import yara_scheduler
@@ -99,7 +101,47 @@ app.register_blueprint(yara_bp)
 create_yara_tables()
 create_users_table()
 create_settings_tables()
-app.secret_key = "rdpshield_secret_key"  # Needed for sessions + flash messages
+def _load_secret_key():
+    """Session-signing key. Read from the RDPSHIELD_SECRET env var, else from a
+    gitignored .flask_secret_key file next to this script (generated once on
+    first run). A persisted file means sessions survive restarts; never commit
+    it. Replacing the key simply forces everyone to log in again."""
+    env = os.environ.get("RDPSHIELD_SECRET")
+    if env:
+        return env
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".flask_secret_key")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            existing = fh.read().strip()
+        if existing:
+            return existing
+    except FileNotFoundError:
+        pass
+    key = secrets.token_hex(32)
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(key)
+        print(f"[AUTH] Generated a new session secret at {path} (gitignored).")
+    except OSError as e:
+        print(f"[AUTH] WARNING: could not persist session secret ({e}); "
+              "sessions will reset on restart.")
+    return key
+
+
+app.secret_key = _load_secret_key()  # Needed for sessions + flash messages
+
+# --- Cookie / session hardening (#11) -------------------------------------
+# HttpOnly keeps the cookie out of JS; SameSite=Lax blocks it on cross-site
+# POSTs (a strong CSRF mitigation on its own). SESSION_COOKIE_SECURE is only
+# turned on when the dashboard is actually served over HTTPS — otherwise the
+# browser refuses to send the cookie over plain HTTP and everyone is locked
+# out. Flip DASHBOARD_USE_HTTPS = True in config.py once TLS is in front.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=bool(getattr(config, "DASHBOARD_USE_HTTPS", False)),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+)
 
 
 def _audit(action, detail=""):
@@ -109,6 +151,16 @@ def _audit(action, detail=""):
                   request.remote_addr or "")
     except Exception as e:
         print(f"[AUDIT] failed to record '{action}': {e}")
+
+
+def _safe_next(default=None):
+    """Return the form's `next` target only if it's a local, same-site path
+    (starts with a single '/', not '//' or a scheme) — otherwise the default.
+    Prevents the redirect from being abused as an open redirect."""
+    nxt = request.form.get("next") or ""
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return nxt
+    return default or url_for("index")
 
 
 # =========================================================================
@@ -146,6 +198,39 @@ def require_login():
         _ACTIVE_USERS[uid] = now
 
 
+# =========================================================================
+# CSRF PROTECTION (#6)
+# =========================================================================
+# A per-session token must accompany every state-changing request, supplied
+# either as a `csrf_token` form field or an `X-CSRFToken` header (the JS shim
+# in static/js/csrf.js adds both automatically). The auth-flow endpoints are
+# exempt — they run before/around session establishment and SameSite=Lax
+# already covers login CSRF.
+CSRF_EXEMPT = {"login", "mfa", "logout", "forgot", "reset", "static"}
+
+
+def _ensure_csrf_token():
+    tok = session.get("csrf_token")
+    if not tok:
+        tok = secrets.token_hex(32)
+        session["csrf_token"] = tok
+    return tok
+
+
+@app.before_request
+def csrf_protect():
+    _ensure_csrf_token()  # so the token is available to render into pages
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return
+    if request.endpoint in CSRF_EXEMPT or request.endpoint is None:
+        return
+    sent = (request.form.get("csrf_token")
+            or request.headers.get("X-CSRFToken")
+            or request.headers.get("X-CSRF-Token") or "")
+    if not hmac.compare_digest(str(sent), str(session.get("csrf_token") or "")):
+        return ("CSRF token missing or invalid. Reload the page and try again.", 400)
+
+
 @app.context_processor
 def inject_user():
     """Make the current user/role available to every template."""
@@ -160,6 +245,8 @@ def inject_user():
         "login_at": session.get("login_at"),
         # Per-user theme; dark futuristic is the default (also for pre-login pages).
         "theme": session.get("theme", "dark"),
+        # CSRF token published to the page (read by static/js/csrf.js).
+        "csrf_token": session.get("csrf_token", ""),
     }
 
 
@@ -168,13 +255,27 @@ def forbidden(_e):
     return render_template("403.html"), 403
 
 
+# Minimum password length enforced everywhere a password is set (#5).
+MIN_PASSWORD_LEN = 12
+
+
+def _password_ok(pw):
+    """A password is acceptable if it meets the minimum length."""
+    return isinstance(pw, str) and len(pw) >= MIN_PASSWORD_LEN
+
+
 def _seed_default_admin():
-    """First run: create an admin/admin account so the operator can log in.
-    MFA is enrolled on first login. The password MUST be changed after."""
+    """First run: create the ROOT admin with a RANDOM strong password (printed
+    once to the log) instead of a guessable default. MFA is enrolled on first
+    login; change the password from the Users page afterwards."""
     if count_users() == 0:
-        create_user("admin", auth.hash_password("admin"), role="admin", is_root=1)
-        print("[AUTH] Seeded default ROOT admin account (admin / admin) — "
-              "change this password after first login.")
+        temp_pw = secrets.token_urlsafe(12)
+        create_user("admin", auth.hash_password(temp_pw), role="admin", is_root=1)
+        print("=" * 64)
+        print("[AUTH] Seeded ROOT admin account 'admin'.")
+        print(f"[AUTH] TEMPORARY PASSWORD: {temp_pw}")
+        print("[AUTH] Log in, enroll MFA, then change this password immediately.")
+        print("=" * 64)
 
 
 # =========================================================================
@@ -183,11 +284,47 @@ def _seed_default_admin():
 
 IDLE_TIMEOUT = 3600        # auto-logout after 1h of inactivity
 CONCURRENT_WINDOW = 600    # "still active" = activity within the last 10 min
-FAILED_LOGIN_LIMIT = 5     # wrong passwords before the account is locked
+FAILED_LOGIN_LIMIT = 5     # wrong passwords before a temporary lockout
+LOCKOUT_DURATION = 900     # how long the temporary lockout lasts (15 min)
 
 # In-memory, single-process state.
 _FAILED_LOGINS = {}        # username -> consecutive wrong-password count
 _ACTIVE_USERS = {}         # user_id  -> last-activity epoch seconds
+_LOCKED_UNTIL = {}         # username -> epoch when the temporary lock lifts
+
+
+def _lock_seconds_left(username):
+    """Seconds remaining on a temporary lockout for `username`, or 0 if none.
+    Expired locks are cleared on read."""
+    until = _LOCKED_UNTIL.get(username)
+    if not until:
+        return 0
+    left = until - time.time()
+    if left <= 0:
+        _LOCKED_UNTIL.pop(username, None)
+        return 0
+    return int(left)
+
+
+def _temp_lock(user, reason):
+    """Temporarily lock an account (in memory, auto-recovers) after repeated
+    failed passwords, and alert the root admin. Unlike a DB disable this can't
+    be abused for a permanent lockout — it lifts on its own. The root admin is
+    never locked (warned only)."""
+    name = user["username"]
+    _FAILED_LOGINS.pop(name, None)
+    add_audit(name, "security.temp_lock", reason, request.remote_addr or "")
+    if user.get("is_root"):
+        _notify_root(f"RDPShield WARNING: {reason} on ROOT admin '{name}'. "
+                     f"Not locked (root) — investigate now.")
+        print(f"[SECURITY] ROOT '{name}': {reason}; warned, not locked.")
+        return
+    _LOCKED_UNTIL[name] = time.time() + LOCKOUT_DURATION
+    _ACTIVE_USERS.pop(user["id"], None)
+    tier = "ADMIN account" if user.get("role") == "admin" else "account"
+    _notify_root(f"RDPShield: {reason} on {tier} '{name}'. "
+                 f"Temporarily locked for {LOCKOUT_DURATION // 60} min.")
+    print(f"[SECURITY] '{name}': {reason}; temp-locked {LOCKOUT_DURATION // 60}m.")
 
 
 def _normalize_phone(p):
@@ -264,20 +401,25 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
+
+        # Temporary lockout: reject early with a neutral message (auto-recovers,
+        # so this can't be abused to permanently lock an account out).
+        if _lock_seconds_left(username):
+            return render_template(
+                "login.html",
+                error="Too many failed attempts. Please try again in a few minutes.")
+
         user = get_user_by_username(username)
 
-        # Wrong credentials -> count failures; lock + alert root past the limit.
+        # Wrong credentials -> count failures; temp-lock + alert root past the limit.
         if not user or not auth.verify_password(user["password_hash"], password):
             if user:
                 _FAILED_LOGINS[username] = _FAILED_LOGINS.get(username, 0) + 1
                 if _FAILED_LOGINS[username] >= FAILED_LOGIN_LIMIT and not user.get("disabled"):
-                    locked = _handle_suspicious(
-                        user, f"{FAILED_LOGIN_LIMIT}+ failed password attempts")
-                    if locked:
-                        return render_template(
-                            "login.html",
-                            error="Too many failed attempts — this account has been "
-                                  "locked and an administrator alerted.")
+                    _temp_lock(user, f"{FAILED_LOGIN_LIMIT}+ failed password attempts")
+                    return render_template(
+                        "login.html",
+                        error="Too many failed attempts. Please try again in a few minutes.")
             return render_template("login.html", error="Invalid username or password.")
 
         # Correct password -> clear the failure counter.
@@ -429,7 +571,7 @@ def forgot():
         # Only send when the account exists, isn't disabled, and has a phone.
         masked = ""
         if user and not user.get("disabled") and user.get("phone"):
-            code = f"{random.randint(0, 999999):06d}"
+            code = f"{secrets.randbelow(1000000):06d}"
             _RESET_CODES[username] = {
                 "code": code, "expires": time.time() + _RESET_TTL, "tries": 0,
             }
@@ -469,9 +611,9 @@ def reset():
         if code != rec["code"]:
             return render_template("reset.html", sent=True, masked="",
                                    error="Incorrect code. Try again.")
-        if len(new_pw) < 4:
+        if not _password_ok(new_pw):
             return render_template("reset.html", sent=True, masked="",
-                                   error="Choose a password of at least 4 characters.")
+                                   error=f"Choose a password of at least {MIN_PASSWORD_LEN} characters.")
 
         user = get_user_by_username(username)
         if user:
@@ -504,6 +646,9 @@ def users_add():
     role = request.form.get("role", "guest")
     if role not in ("admin", "guest"):
         role = "guest"
+    if username and not _password_ok(password):
+        flash(f"Password must be at least {MIN_PASSWORD_LEN} characters.", "error")
+        return redirect(url_for("users_page"))
     if username and password:
         ok = create_user(username, auth.hash_password(password), role=role,
                          phone=phone)
@@ -564,8 +709,8 @@ def users_update(user_id):
     phone = _normalize_phone(request.form.get("phone", ""))
     changed = []
     if new_pw:
-        if len(new_pw) < 4:
-            flash("Password must be at least 4 characters.", "error")
+        if not _password_ok(new_pw):
+            flash(f"Password must be at least {MIN_PASSWORD_LEN} characters.", "error")
             return redirect(url_for("users_page"))
         update_user_password(user_id, auth.hash_password(new_pw))
         changed.append("password")
@@ -619,7 +764,7 @@ def set_theme(mode):
     mode = "light" if mode == "light" else "dark"
     set_user_theme(session.get("user_id"), mode)
     session["theme"] = mode
-    return redirect(request.form.get("next") or url_for("index"))
+    return redirect(_safe_next())
 
 
 # =========================================================================
@@ -1163,7 +1308,7 @@ def unblock(ip_address):
     if success:
         _audit("ip.unblock", ip_address)
         print(f"[DASHBOARD] Manually unblocked {ip_address}")
-    return redirect(request.form.get("next") or url_for("index"))
+    return redirect(_safe_next())
 
 
 @app.route("/block", methods=["POST"])
@@ -1199,7 +1344,7 @@ def block():
             print(f"[DASHBOARD] Manually blocked {ip} ({reason})")
         else:
             print(f"[DASHBOARD] Could not block {ip} (whitelisted, already blocked, or disabled)")
-    return redirect(request.form.get("next") or url_for("index"))
+    return redirect(_safe_next())
 
 
 # =========================================================================

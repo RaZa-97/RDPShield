@@ -1,5 +1,6 @@
 # Secrets — NEVER commit
 config.py
+.flask_secret_key
 
 # Database (runtime data)
 rdpshield.db

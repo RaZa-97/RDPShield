@@ -13,9 +13,20 @@ Requirements:
 - Must run as Administrator (netsh needs elevated privileges)
 """
 
+import ipaddress
 import subprocess
 from config import WHITELIST_IPS, AUTO_BLOCK_ENABLED
 from database import log_blocked_ip, unblock_ip_record, is_ip_blocked
+
+
+def _valid_ip(ip_address):
+    """True only for a well-formed single IPv4/IPv6 address. Used to reject
+    anything that isn't a plain IP before it reaches a subprocess call."""
+    try:
+        ipaddress.ip_address(ip_address)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 def block_ip(ip_address, reason="RDPShield auto-block"):
@@ -34,6 +45,12 @@ def block_ip(ip_address, reason="RDPShield auto-block"):
     Returns:
         True if blocked successfully, False otherwise
     """
+    # Safety check: reject anything that isn't a plain IP address. This is the
+    # value that goes into the netsh command, so it must be strictly validated.
+    if not _valid_ip(ip_address):
+        print(f"[FIREWALL] REJECTED: '{ip_address}' is not a valid IP address.")
+        return False
+
     # Safety check: don't block whitelisted IPs
     if ip_address in WHITELIST_IPS:
         print(f"[FIREWALL] SKIPPED: {ip_address} is whitelisted.")
@@ -52,22 +69,23 @@ def block_ip(ip_address, reason="RDPShield auto-block"):
     # Create the firewall rule name
     rule_name = f"RDPShield_Block_{ip_address}"
 
-    # Build the netsh command
-    # This creates an inbound rule that blocks ALL traffic from this IP
-    cmd = (
-        f'netsh advfirewall firewall add rule '
-        f'name="{rule_name}" '
-        f'dir=in '
-        f'action=block '
-        f'remoteip={ip_address} '
-        f'enable=yes'
-    )
+    # Build the netsh command as an argument list (shell=False) so the IP can
+    # never be interpreted as shell syntax. Creates an inbound rule blocking
+    # ALL traffic from this IP.
+    cmd = [
+        "netsh", "advfirewall", "firewall", "add", "rule",
+        f"name={rule_name}",
+        "dir=in",
+        "action=block",
+        f"remoteip={ip_address}",
+        "enable=yes",
+    ]
 
     try:
         # Run the command
         result = subprocess.run(
             cmd,
-            shell=True,
+            shell=False,
             capture_output=True,
             text=True,
             timeout=10
@@ -104,17 +122,21 @@ def unblock_ip(ip_address):
     Returns:
         True if unblocked successfully, False otherwise
     """
+    if not _valid_ip(ip_address):
+        print(f"[FIREWALL] REJECTED: '{ip_address}' is not a valid IP address.")
+        return False
+
     rule_name = f"RDPShield_Block_{ip_address}"
 
-    cmd = (
-        f'netsh advfirewall firewall delete rule '
-        f'name="{rule_name}"'
-    )
+    cmd = [
+        "netsh", "advfirewall", "firewall", "delete", "rule",
+        f"name={rule_name}",
+    ]
 
     try:
         result = subprocess.run(
             cmd,
-            shell=True,
+            shell=False,
             capture_output=True,
             text=True,
             timeout=10
