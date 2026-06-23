@@ -1,7 +1,7 @@
 # RDPShield — Project Progress & Reference
 
 > MSc Dissertation project. Windows blue-team tool for RDP brute-force detection with a Flask SOC-style dashboard.
-> Last updated: 2026-06-21
+> Last updated: 2026-06-23  ·  App version: v3.5 (auth/MFA/RBAC, Settings, dark theme, animated charts + live attack map)
 
 ---
 
@@ -43,6 +43,7 @@ VIRUSTOTAL_API_KEY  = "<your VT key>"    # gitignored; never pushed
 VIRUSTOTAL_URL      = "https://www.virustotal.com/api/v3"
 ```
 Live secrets in config.py: AbuseIPDB key, Notify.lk creds + phone, VirusTotal key. **All exposed in chat — rotate when convenient.**
+> **v3.4+:** API keys (VirusTotal / AbuseIPDB / Notify.lk) can now be rotated in the **Settings** page; those values are stored in the DB (`settings` table) and **override `config.py` at runtime** via `settings.py`. config.py remains the fallback. So new keys no longer require editing config.py on the server — though config.py still needs the original thresholds/flags above to import cleanly.
 
 ### Scheduled tasks (run as SYSTEM, survive RDP disconnect + reboot)
 | Task | Runs | Schedule |
@@ -59,7 +60,7 @@ C:\Users\Administrator\AppData\Local\Programs\Python\Python311-32\python.exe <sc
 ```
 Python on server: **3.11 32-bit**. UTF-8 mode (`set PYTHONUTF8=1`) is required or non-ASCII attacker data crashes under SYSTEM.
 
-### Feature set as of 2026-06-21
+### Feature set as of 2026-06-23 (v3.5)
 - **Detection:** brute force (5/60s), slow-and-low (10/600s, shadowed by persistent), password spray (4 users/300s), **persistent/low-and-slow (5 failures/24h any pacing)**.
 - **Geo access control (Advanced Security page, 2 sections):** Geolocation Settings (allow-anywhere / country-list → `geo_block`) and Whitelist Settings (IP-whitelist-only → `whitelist_block`). Each has its own mode control, lockout guard, allow-list, stats, Allowed-vs-Blocked chart, and category-tagged event log with **Unblock** buttons.
 - **Response (strict order Block → YARA disk scan → SMS):** firewall block; post-block YARA disk scan; one rich SMS sent from the scan-completion handler containing IP, location (city/country), reason, failed-attempt count, "Valid login from blocked zone: YES" flag, YARA result, timestamp. Manual blocks run YARA + log an alert but send **no SMS** (auto-blocks only).
@@ -103,27 +104,40 @@ C:\RDPShield\                   ← live deployment target on VM
 
 ```
 rdpshield.py        Main monitoring agent (runs as Administrator, reads Security event log)
-dashboard.py        Flask web app (dashboard + geo settings + YARA pages)
-database.py         All SQLite CRUD — init_db(), logging, queries
-alerts.py           IP enrichment: ip-api.com geolocation, AbuseIPDB reputation, Notify.lk SMS
+dashboard.py        Flask web app (dashboard, geo, YARA, auth/MFA, users, settings, reports, APIs)
+database.py         All SQLite CRUD — init_db(), logging, queries, users/settings/audit
+alerts.py           IP enrichment: ip-api geo (+lat/lon), AbuseIPDB, Notify.lk SMS (multi-recipient)
 firewall.py         block_ip() / unblock_ip() via Windows Firewall (netsh)
 config.py           All thresholds, API keys, feature flags  ⚠ contains live secrets — never commit
 countries.py        Static list ~200 COUNTRY_NAMES (ip-api.com format) for autocomplete datalist
+auth.py             v3.3 — login/admin decorators, werkzeug password hashing, pyotp TOTP helpers
+settings.py         v3.4 — DB-backed runtime settings (API keys/recipients/SMS-types/retention) overriding config.py; key-rotation status
+daily_report.py     Daily JSON report builder; write_report(day) reused by dashboard's maintenance loop
 
 yara_scanner.py     YARA disk + memory scan engine
 yara_scheduler.py   Daemon thread: triggers scan_async() after each block event
-yara_routes.py      Flask Blueprint — /yara/*, /yara/scan, /yara/status, /yara/findings/<id>
+yara_routes.py      Flask Blueprint — /yara/* (scan/status/findings/actions); admin-gated mutations
 yara_fp_filter.py   False-positive suppressor (confidence threshold from config)
 yara_rules/         YARA rule files: bruteforce_tools.yar, credential_files.yar, post_compromise.yar
 
-static/style.css        Shared light SOC theme (CSS custom properties)
+static/style.css        Shared theme — light + [data-theme="dark"] override (CSS custom properties)
 static/img/logo.svg     Custom shield + checkmark SVG logo
 static/js/chart.umd.min.js  Chart.js 4.4.4 bundled locally (VM has no internet)
 static/js/modal.js      Shared confirm-modal JS replacing all window.confirm() popups
+static/js/tables.js     Shared table renderers (TABLE_RENDERERS) + list-page pagination; IS_ADMIN-gated actions
+                        (Leaflet loaded from CDN at runtime for the dashboard attack map — needs viewer internet)
 
-templates/index.html    Main dashboard
-templates/geo.html      Geolocation settings
+templates/index.html    Main dashboard (charts, live attack map, preview tables)
+templates/geo.html      Advanced Security (geolocation + whitelist)
 templates/yara.html     YARA Controller
+templates/list.html     Generic full-list page (View all) — searchable + paginated
+templates/login.html · mfa.html · forgot.html · reset.html · 403.html   Auth flow + access-denied
+templates/users.html    User management (admin)
+templates/settings.html Settings (API keys, recipients, SMS types, retention, reports, audit)
+templates/_topbar.html  Shared top bar (nav, bell, theme toggle, user chip) — {% include %}
+templates/_icons.html   Custom SVG icon macro — {% from '_icons.html' import icon %}
+
+DISSERTATION_OUTLINE.md / RDPShield_Dissertation_Outline.docx   Dissertation skeleton (not deployed; gitignored/local)
 ```
 
 ---
@@ -194,10 +208,17 @@ xcopy "Z:\static\js\tables.js"    "C:\RDPShield\static\js\" /Y
 | `geo_settings` | Single-row: current geo mode |
 | `allowed_countries` | Country whitelist for `country_list` mode |
 | `allowed_ips` | IP whitelist for `private_and_allowed` mode |
-| `geo_cache` | Cached ip-api.com lookups (saves rate-limit quota) |
+| `geo_cache` | Cached ip-api.com lookups + **`lat`/`lon`** (v3.5, for the attack map) |
 | `geo_events` | Log of every geo-checked connection (allowed + blocked) |
 | `yara_scans` | Scan metadata (trigger, duration, findings count, max severity) |
-| `yara_findings` | Individual YARA rule hits, linked to scan by scan_id |
+| `yara_findings` | Individual YARA rule hits (+ `status`, `sha256`), linked to scan by scan_id |
+| `yara_whitelist` | Operator-cleared file hashes; skipped by future scans |
+| `users` | v3.3 accounts: username, password_hash, role, totp_secret, mfa_enabled, **disabled, is_root, phone, theme** |
+| `settings` | v3.4 key/value runtime settings (API keys, sms_alert_types, retention_days, rotation, throttle timestamps) — overrides config.py |
+| `alert_recipients` | v3.4 SMS alert recipient numbers (label, phone, active) |
+| `audit_log` | v3.4 admin/security action trail (timestamp, username, action, detail, ip) |
+
+> Migrations are automatic on start (`init_db` / `create_users_table` / `create_settings_tables` run `ALTER TABLE` for added columns: users.{disabled,is_root,phone,theme}, geo_cache.{lat,lon}).
 
 ---
 
@@ -243,36 +264,44 @@ Both risky modes have dashboard guards: Apply button disabled when whitelist is 
 
 ## Dashboard Pages
 
+> All pages require login (global `before_request` gate). Shared top bar (`_topbar.html`) on every authed page: nav, **notification bell**, **theme toggle**, user chip (name/role/live session timer), Sign out. Admin-only nav: **Users**, **Settings**.
+
+### `/login` · `/mfa` · `/forgot` · `/reset` — Auth flow
+- Username/password → TOTP (enroll on first login, else verify) → session. Forgot-password sends an SMS code. Idle 1h auto-logout; lockout on suspicious login.
+
 ### `/` — Main Dashboard
 - 4 stat cards: Failed Logins, Alerts Triggered, IPs Blocked, Unique Attackers
-- Live refresh badge (auto-refreshes every 10 s via `<meta http-equiv="refresh">`)
-- **Line chart** — Failed Login Trend (last 14 days), Chart.js bundled locally
-- **Bar chart** — Alert Breakdown by type (last 30 days) with gradient fills + drop-shadow plugin
-- Top Attacker Countries — horizontal bar list ranked by alert count
-- Recent Alerts table with AbuseIPDB score colouring
-- Blocked IPs table with Unblock button (custom modal confirm)
-- Recent Failed Logins table
+- **Live in-place AJAX refresh every 10 s** (stats + 3 tables + charts + map; no full reload)
+- **Animated line chart** — Failed Login Trend (14 days) — glow + pulsing live dot
+- **Animated bar chart** — Alert Breakdown (30 days) — gradient bars + tooltips
+- **Live geographic attack map** (Leaflet, CDN tiles) — marker size = attempts, colour = status
+- API-key rotation reminder banner (admins, when due)
+- Top Attacker Countries (animated bars); Recent Alerts / Blocked IPs / Recent Failed Logins **preview tables (5 rows + View all)**
 
-### `/geo` — Geolocation Settings
-- Geo stats: total blocked, total allowed, top blocked country
-- Mode selector with lockout-warning guard logic (JS: `MODE_GUARDS`, `updateApplyState()`)
-- Country autocomplete via `<datalist>` populated from `countries.py:COUNTRY_NAMES`
-- Allowed Countries table with Remove buttons (modal confirm)
-- Allowed IPs table with Remove buttons (modal confirm)
-- Geo Events log
+### `/geo` — Advanced Security
+- Geolocation + Whitelist sections; mode selectors with lockout guards; allow-lists; animated Allowed-vs-Blocked mini charts; category event logs (preview + View all). Mutations admin-only.
 
 ### `/yara` — YARA Controller
-- Run Disk Scan / Run Memory Scan buttons
-- Live status card (polling `/yara/status` every 3 s)
-- Scan History table (click row to load findings)
-- Findings panel with severity badges (CRITICAL / HIGH / MEDIUM / LOW)
+- Run Disk/Memory Scan (admin); live status card (polls `/yara/status`); Scan History (preview + View all); Findings panel; Managed Findings categories. Actions admin-only.
+
+### `/users` — User Management (admin)
+- Add user (username/password/phone/role); Edit (reset pw / set phone); Disable/Enable; Reset MFA; Delete. Root-admin protections.
+
+### `/settings` — Settings (admin)
+- API key rotation (DB-backed, overrides config.py) + rotation reminders; Alert Recipients (SMS); SMS alert-type toggles; Data Retention (daily auto-purge + Purge now); Daily Reports (list/generate/download); Admin Audit Log; theme.
+
+### Full-list pages & exports
+- `/list/<key>` — searchable, paginated full view (alerts, blocked, events, geo_events, whitelist_events, yara_scans, audit[admin]).
+- `/export/<key>.csv` — CSV of any dataset (audit is admin-only).
 
 ---
 
 ## UI / Frontend
 
-### Theme — Light SOC Style
-CSS custom properties in `:root` (style.css):
+### Theme — Light + Dark (per-user, v3.4)
+Default is **dark futuristic**. Each user toggles light/dark (top-bar icon or Settings); choice saved on `users.theme` + session, applied via `<html data-theme="{{ theme }}">`. Light uses the `:root` variables below; **dark** overrides them under `[data-theme="dark"]` (cyber navy + electric-blue, panel glows). Pre-login pages default to dark. Custom heading icons (`_icons.html`) use `currentColor` so they re-tint per theme.
+
+CSS custom properties in `:root` (style.css) — light theme base:
 ```
 --bg: #f3f5f9        Page background
 --surface: #ffffff   Cards
@@ -442,7 +471,7 @@ schtasks /query /tn "RDPShield-Agent"
 
 ### Packages installed on server
 ```cmd
-pip install flask requests pywin32 yara-python psutil==6.1.1
+pip install flask requests pywin32 yara-python psutil==6.1.1 pyotp qrcode
 ```
 > Note: psutil 7.x has no 32-bit wheel. Use `psutil==6.1.1` with 32-bit Python 3.11.
 
