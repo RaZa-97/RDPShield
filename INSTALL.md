@@ -117,13 +117,22 @@ Fill in these values (everything else has sane defaults):
 | `NOTIFY_USER_ID` / `NOTIFY_API_KEY` | Notify.lk SMS credentials | register at <https://app.notify.lk/register> |
 | `ALERT_TO_NUMBER` | Phone to receive alerts, format `94XXXXXXXXX` | your mobile |
 | `WHITELIST_IPS` | **Add your own admin/management IP here** so you're never blocked | — |
+| `DASHBOARD_USE_HTTPS` | *(optional)* set `= True` **only** if you serve the dashboard over HTTPS (reverse proxy/TLS). Marks the session cookie `Secure`. | leave unset/`False` for plain HTTP |
 
 > 🔐 **Important:** add your admin IP to `WHITELIST_IPS` *before* exposing the
 > host, or you could block yourself. `config.py` is gitignored — your keys are
 > never committed.
 >
+> ⚠️ Do **not** set `DASHBOARD_USE_HTTPS = True` while still on plain HTTP — the
+> browser will stop sending the session cookie and **you won't be able to log
+> in**. Only enable it once TLS is actually in front of the dashboard.
+>
 > 💡 Most API keys can **also** be set/rotated later from the dashboard's
 > **Settings** page (stored in the DB, overriding `config.py`).
+>
+> 🗝️ On first start the app also generates a random **`.flask_secret_key`** file
+> (used to sign session cookies). It is **gitignored** — keep it, don't commit
+> it, and don't copy it between servers. Deleting it just logs everyone out.
 
 ---
 
@@ -146,9 +155,18 @@ http://localhost:5000
 ```
 
 **First login:**
-1. A default account is auto-created: **username `admin`, password `admin`** (printed in the dashboard terminal).
-2. Log in → you'll be asked to **set up two-factor**: scan the QR with Google Authenticator / Authy (or type the shown secret), enter the 6-digit code.
-3. Go to **Settings** and **change the admin password**, then add real users under **Users**.
+1. On the very first start, a root admin account **`admin`** is auto-created with a
+   **random one-time password printed in the dashboard terminal** — look for:
+   ```
+   [AUTH] Seeded ROOT admin account 'admin'.
+   [AUTH] TEMPORARY PASSWORD: <copy this>
+   ```
+   (There is **no** fixed `admin/admin` default — copy the printed password.)
+2. Log in → you'll be asked to **set up two-factor**: scan the QR with Google
+   Authenticator / Authy (or type the shown secret), enter the 6-digit code.
+3. Go to **Users** and **change the admin password** (minimum **12 characters**),
+   then add real users. **Set a phone number on each account** so password reset
+   and account-unlock by SMS will work (see `SECURITY.md`).
 
 Press `Ctrl+C` in both terminals to stop the test once it works.
 
@@ -280,8 +298,14 @@ schtasks /end /tn "RDPShield-Agent" & schtasks /end /tn "RDPShield-Dashboard"
 taskkill /F /IM python.exe
 schtasks /run /tn "RDPShield-Agent" & schtasks /run /tn "RDPShield-Dashboard"
 ```
-Then hard-refresh the dashboard in the browser (`Ctrl+F5`). Database schema
-migrations run automatically on start.
+Then **hard-refresh the dashboard in the browser (`Ctrl+F5`)** — this is required
+after an update: the dashboard enforces a CSRF token, and a stale cached page can
+otherwise get **HTTP 400** on every button (block/unblock/settings/…). Database
+schema migrations run automatically on start.
+
+> ℹ️ After the first start on a brand-new server (or if `.flask_secret_key` is
+> missing), existing browser sessions are invalidated and **everyone has to log
+> in again** — this is expected. Use your existing credentials.
 
 ---
 
@@ -299,6 +323,10 @@ migrations run automatically on start.
 | No SMS arriving | Notify.lk creds / plan | Check the dashboard log for `[SMS] …`; Notify.lk demo plans often only deliver to the account owner's verified number |
 | Map is empty | older attacker IPs have no coordinates | run `python backfill_geo.py` once |
 | Tasks run but nothing starts | SYSTEM lacks Python on PATH | Use the full `python.exe` path in the `.bat` files |
+| Every button gives **HTTP 400 / "CSRF token … invalid"** | stale page cached after an update | Hard-refresh with **`Ctrl+F5`** (and log in again if prompted) |
+| Can't log in: **"too many failed attempts"** | temporary lockout (5 wrong passwords or a concurrent login) | Wait 15 min, **or** use **"Account locked? Unlock via SMS"** on the login page (needs a phone on the account). See `SECURITY.md` |
+| Locked out with **no phone** on the account | can't self-unlock by SMS | Wait 15 min for the auto-unlock, or have another admin reset things from **Users**. The **root** admin is never auto-locked |
+| Forgot the seeded admin password | it was printed once at first start | If no other admin exists, stop the app, delete `rdpshield.db` **(loses data)** to re-seed, or restore from backup |
 
 ---
 
@@ -307,14 +335,21 @@ migrations run automatically on start.
 - **Defensive / authorized use only.** Run it on systems you own or administer.
 - `config.py` holds live API keys/credentials — it is **gitignored**; never
   commit or share it. Rotate keys you've exposed.
+- `.flask_secret_key` (auto-generated) signs session cookies — **gitignored**;
+  keep it private and per-server.
 - Add your **admin IP to `WHITELIST_IPS`** before going live to avoid self-lockout.
 - The dashboard runs over **plain HTTP** with a development server — keep port
-  5000 restricted to your IP; put it behind a reverse proxy + TLS for anything
-  beyond a lab/dissertation demo.
+  5000 restricted to your IP; put it behind a reverse proxy + TLS (then set
+  `DASHBOARD_USE_HTTPS = True`) for anything beyond a lab/dissertation demo.
+- Logins require **password + TOTP two-factor**; accounts auto-lock temporarily
+  after repeated failures and can be unlocked by SMS. **Full details of the
+  account-security model are in [`SECURITY.md`](SECURITY.md).**
 - The executables/scripts are unsigned; Windows SmartScreen/AV may warn — this
   is expected for a self-built security tool.
 
 ---
 
-For architecture, feature details, and the deployment cheat-sheet, see
-**`PROGRESS.md`**. For the attack-test plan, see **`TESTING.md`**.
+For the **account-security & lockout model** (login, MFA, lockouts, SMS unlock,
+roles, CSRF, recovery), see **[`SECURITY.md`](SECURITY.md)**. For architecture,
+feature details, and the deployment cheat-sheet, see **`PROGRESS.md`**. For the
+attack-test plan, see **`TESTING.md`**.
