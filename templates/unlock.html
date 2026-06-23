@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield — Unlock account</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+            <div>
+                <div class="auth-title">RDPSHIELD</div>
+                <div class="auth-tag">RDP Threat Defense</div>
+            </div>
+        </div>
+
+        {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+
+        {% if not sent %}
+        <div class="auth-step">RECOVERY / UNLOCK</div>
+        <h1 class="auth-h1">Unlock account</h1>
+        <p class="auth-sub">If your account was temporarily locked after suspicious activity,
+            enter your username. If a phone number is on file, we'll text you a 6-digit unlock
+            code via SMS to confirm it's really you.</p>
+
+        <form method="POST" action="/unlock" class="auth-form">
+            <label class="auth-label" for="username">Username</label>
+            <input class="form-input auth-input" type="text" id="username" name="username"
+                   autocomplete="username" autofocus required>
+            <button type="submit" class="btn-apply auth-submit">Send unlock code &rarr;</button>
+        </form>
+        {% else %}
+        <div class="auth-step">RECOVERY / VERIFY</div>
+        <h1 class="auth-h1">Enter unlock code</h1>
+        <p class="auth-sub">
+            If a matching account with a registered phone exists, a 6-digit code was sent{% if masked %}
+            to {{ masked }}{% endif %}. Enter it below to lift the lock, then sign in as usual.
+        </p>
+
+        <form method="POST" action="/unlock/verify" class="auth-form">
+            <label class="auth-label" for="code">Unlock code</label>
+            <input class="form-input auth-input" type="text" id="code" name="code"
+                   inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                   autocomplete="one-time-code" placeholder="000000" autofocus required>
+            <button type="submit" class="btn-apply auth-submit">Unlock account</button>
+        </form>
+
+        <div class="auth-links"><a href="/unlock" class="auth-back">&larr; Request a new code</a></div>
+        {% endif %}
+
+        <div class="auth-links"><a href="/login" class="auth-back">&larr; Back to sign in</a></div>
+    </div>
+
+    <script>
+        const code = document.getElementById('code');
+        if (code) code.addEventListener('input', () => { code.value = code.value.replace(/[^0-9]/g, ''); });
+    </script>
+</body>
+</html>

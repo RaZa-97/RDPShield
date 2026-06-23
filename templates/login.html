@@ -28,6 +28,11 @@
         {% endwith %}
         {% if info %}<div class="flash flash-message">{{ info }}</div>{% endif %}
         {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+        {% if show_unlock %}
+        <a href="/unlock" class="btn-apply auth-submit" style="display:block;text-align:center;text-decoration:none;margin-bottom:14px;">
+            Unlock my account via SMS &rarr;
+        </a>
+        {% endif %}
 
         <form method="POST" action="/login" class="auth-form">
             <label class="auth-label" for="username">Username</label>
@@ -43,6 +48,9 @@
                     <input type="checkbox" name="remember"> Remember this device
                 </label>
                 <a href="/forgot" class="auth-forgot">Forgot password?</a>
+            </div>
+            <div class="auth-row" style="justify-content:flex-end;">
+                <a href="/unlock" class="auth-forgot">Account locked? Unlock via SMS</a>
             </div>
 
             <button type="submit" class="btn-apply auth-submit">Continue &rarr;</button>

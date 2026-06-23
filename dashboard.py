@@ -168,7 +168,8 @@ def _safe_next(default=None):
 # =========================================================================
 
 # Endpoints reachable WITHOUT a full login (the auth flow itself + assets).
-PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "forgot", "reset", "static"}
+PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "forgot", "reset",
+                    "unlock", "unlock_verify", "static"}
 
 
 @app.before_request
@@ -206,7 +207,8 @@ def require_login():
 # in static/js/csrf.js adds both automatically). The auth-flow endpoints are
 # exempt — they run before/around session establishment and SameSite=Lax
 # already covers login CSRF.
-CSRF_EXEMPT = {"login", "mfa", "logout", "forgot", "reset", "static"}
+CSRF_EXEMPT = {"login", "mfa", "logout", "forgot", "reset",
+               "unlock", "unlock_verify", "static"}
 
 
 def _ensure_csrf_token():
@@ -307,10 +309,14 @@ def _lock_seconds_left(username):
 
 
 def _temp_lock(user, reason):
-    """Temporarily lock an account (in memory, auto-recovers) after repeated
-    failed passwords, and alert the root admin. Unlike a DB disable this can't
-    be abused for a permanent lockout — it lifts on its own. The root admin is
-    never locked (warned only)."""
+    """Temporarily lock an account (in memory, auto-recovers) after a suspicious
+    event, and alert the root admin. Unlike a DB disable this can't be abused
+    for a permanent lockout — it lifts on its own after LOCKOUT_DURATION, and
+    the real owner can clear it early via the SMS unlock flow (/unlock). The
+    root admin is never locked (warned only).
+
+    Returns True if the account was actually locked, False if it was spared
+    (root) so the caller can let the login proceed."""
     name = user["username"]
     _FAILED_LOGINS.pop(name, None)
     add_audit(name, "security.temp_lock", reason, request.remote_addr or "")
@@ -318,13 +324,14 @@ def _temp_lock(user, reason):
         _notify_root(f"RDPShield WARNING: {reason} on ROOT admin '{name}'. "
                      f"Not locked (root) — investigate now.")
         print(f"[SECURITY] ROOT '{name}': {reason}; warned, not locked.")
-        return
+        return False
     _LOCKED_UNTIL[name] = time.time() + LOCKOUT_DURATION
     _ACTIVE_USERS.pop(user["id"], None)
     tier = "ADMIN account" if user.get("role") == "admin" else "account"
-    _notify_root(f"RDPShield: {reason} on {tier} '{name}'. "
-                 f"Temporarily locked for {LOCKOUT_DURATION // 60} min.")
+    _notify_root(f"RDPShield: {reason} on {tier} '{name}'. Temporarily locked "
+                 f"{LOCKOUT_DURATION // 60} min; owner can clear it via SMS unlock.")
     print(f"[SECURITY] '{name}': {reason}; temp-locked {LOCKOUT_DURATION // 60}m.")
+    return True
 
 
 def _normalize_phone(p):
@@ -360,29 +367,6 @@ def _notify_root(message):
         print(f"[SECURITY] Alert SMS to {num} ok={ok}")
 
 
-def _handle_suspicious(user, reason):
-    """Lock the account (except the root admin, to avoid permanent lockout)
-    and immediately SMS the root admin. Admin/root targets get a stronger
-    'breach attempt' warning."""
-    name = user["username"]
-    _FAILED_LOGINS.pop(name, None)
-    add_audit(name, "security.suspicious", reason, request.remote_addr or "")
-    if user.get("is_root"):
-        _notify_root(f"RDPShield WARNING: breach attempt on ROOT admin '{name}' "
-                     f"({reason}). Account NOT locked to avoid lockout — investigate now.")
-        print(f"[SECURITY] ROOT '{name}' suspicious ({reason}); warned, not locked.")
-        return False  # root is never auto-locked
-    set_user_disabled(user["id"], True)
-    _ACTIVE_USERS.pop(user["id"], None)
-    if user.get("role") == "admin":
-        _notify_root(f"RDPShield WARNING: breach attempt on ADMIN account '{name}' "
-                     f"({reason}). The account has been LOCKED.")
-    else:
-        _notify_root(f"RDPShield: account '{name}' was LOCKED after {reason}.")
-    print(f"[SECURITY] Locked '{name}' ({reason}); root notified.")
-    return True
-
-
 def _is_user_active(user_id):
     ts = _ACTIVE_USERS.get(user_id)
     return ts is not None and (time.time() - ts) < CONCURRENT_WINDOW
@@ -416,10 +400,13 @@ def login():
             if user:
                 _FAILED_LOGINS[username] = _FAILED_LOGINS.get(username, 0) + 1
                 if _FAILED_LOGINS[username] >= FAILED_LOGIN_LIMIT and not user.get("disabled"):
-                    _temp_lock(user, f"{FAILED_LOGIN_LIMIT}+ failed password attempts")
-                    return render_template(
-                        "login.html",
-                        error="Too many failed attempts. Please try again in a few minutes.")
+                    if _temp_lock(user, f"{FAILED_LOGIN_LIMIT}+ failed password attempts"):
+                        return render_template(
+                            "login.html",
+                            error="Too many failed attempts. This account is locked for "
+                                  f"{LOCKOUT_DURATION // 60} minutes — or unlock it now via "
+                                  "the SMS code sent to your registered phone.",
+                            show_unlock=True)
             return render_template("login.html", error="Invalid username or password.")
 
         # Correct password -> clear the failure counter.
@@ -430,14 +417,16 @@ def login():
                                    error="This account is disabled. Contact an administrator.")
 
         # Suspicious concurrent login: a valid password while the account is
-        # already actively in use. Locks the account (root is only warned).
+        # already actively in use. Temporarily locks the account (root is only
+        # warned); the owner can clear it via the SMS unlock flow.
         if _is_user_active(user["id"]):
-            locked = _handle_suspicious(user, "login while an existing session was active")
-            if locked:
+            if _temp_lock(user, "login while an existing session was active"):
                 return render_template(
                     "login.html",
                     error="A concurrent login was detected while this account was "
-                          "active. The account has been locked and an administrator alerted.")
+                          f"active, so it's locked for {LOCKOUT_DURATION // 60} minutes. "
+                          "Unlock it now with the SMS code sent to your registered phone.",
+                    show_unlock=True)
 
         # Password OK -> hand off to the MFA step. Stash a *pending* identity
         # only; the full session is not granted until TOTP succeeds.
@@ -625,6 +614,84 @@ def reset():
         return redirect(url_for("login"))
 
     return render_template("reset.html", sent=True, masked="", error=None)
+
+
+# =========================================================================
+# UNLOCK A TEMPORARILY-LOCKED ACCOUNT (SMS code to the registered phone)
+# =========================================================================
+# Proves the requester owns the account's phone, then clears the in-memory
+# security lockout so the owner can sign in normally (still needs password +
+# MFA). It deliberately does NOT re-enable an admin-DISABLED account — that
+# stays under admin control. Codes are in-memory, short-lived, single-use.
+_UNLOCK_CODES = {}
+_UNLOCK_TTL = 600        # 10 minutes
+_UNLOCK_MAX_TRIES = 5
+
+
+@app.route("/unlock", methods=["GET", "POST"])
+def unlock():
+    if session.get("user_id"):
+        return redirect(url_for("index"))
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        user = get_user_by_username(username)
+        masked = ""
+        # Only text a code to a real, non-disabled account that has a phone.
+        # (A disabled account can't be self-unlocked — that's an admin action.)
+        if user and not user.get("disabled") and user.get("phone"):
+            code = f"{secrets.randbelow(1000000):06d}"
+            _UNLOCK_CODES[username] = {
+                "code": code, "expires": time.time() + _UNLOCK_TTL, "tries": 0,
+            }
+            number = _normalize_phone(user["phone"])
+            ok = send_sms_to(number,
+                             f"RDPShield account unlock code: {code} "
+                             f"(valid 10 min). If you didn't request this, ignore it.")
+            masked = _mask_phone(number)
+            print(f"[AUTH] Unlock code SMS for {username} to {number} ok={ok}")
+        # Neutral handoff regardless, to avoid leaking which accounts exist.
+        session["unlock_user"] = username
+        return render_template("unlock.html", sent=True, masked=masked, error=None)
+
+    return render_template("unlock.html", sent=False, masked="", error=None)
+
+
+@app.route("/unlock/verify", methods=["POST"])
+def unlock_verify():
+    username = session.get("unlock_user")
+    if not username:
+        return redirect(url_for("unlock"))
+
+    code = request.form.get("code", "").strip()
+    rec = _UNLOCK_CODES.get(username)
+
+    if not rec or time.time() > rec["expires"]:
+        _UNLOCK_CODES.pop(username, None)
+        return render_template("unlock.html", sent=True, masked="",
+                               error="That code has expired. Request a new one.")
+    rec["tries"] += 1
+    if rec["tries"] > _UNLOCK_MAX_TRIES:
+        _UNLOCK_CODES.pop(username, None)
+        return render_template("unlock.html", sent=True, masked="",
+                               error="Too many attempts. Request a new code.")
+    if code != rec["code"]:
+        return render_template("unlock.html", sent=True, masked="",
+                               error="Incorrect code. Try again.")
+
+    # Verified the phone owner: clear the temporary security lockout only.
+    _LOCKED_UNTIL.pop(username, None)
+    _FAILED_LOGINS.pop(username, None)
+    _UNLOCK_CODES.pop(username, None)
+    session.pop("unlock_user", None)
+    user = get_user_by_username(username)
+    if user:
+        _ACTIVE_USERS.pop(user["id"], None)  # let the owner start a fresh session
+        add_audit(username, "security.unlock", "unlocked via SMS code",
+                  request.remote_addr or "")
+    print(f"[AUTH] Account unlock completed for {username}")
+    flash("Account unlocked. Sign in with your password.", "success")
+    return redirect(url_for("login"))
 
 
 # =========================================================================
