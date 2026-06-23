@@ -1584,3 +1584,13 @@ footer {
 }
 /* Soft glow on attacker markers */
 .attack-map .leaflet-interactive { filter: drop-shadow(0 0 3px rgba(79,124,255,0.5)); }
+
+/* Threat-map legend */
+.map-legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+    margin-bottom: 14px; font-size: 0.85rem; color: var(--muted);
+}
+.map-legend strong { color: var(--text); font-size: 0.95rem; }
+.map-legend .ml-meta { color: var(--muted); }
+.map-legend .ml-key { display: inline-flex; align-items: center; gap: 7px; color: var(--text); font-weight: 600; }
+.map-legend .ldot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
