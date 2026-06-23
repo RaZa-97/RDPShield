@@ -19,15 +19,16 @@ Access: http://SERVER_IP:5000
 
 import csv
 import io
+import os
 import random
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import (
     Flask, render_template, jsonify, request,
-    redirect, url_for, flash, session, Response
+    redirect, url_for, flash, session, Response, send_from_directory
 )
 from database import (
     init_db,
@@ -88,6 +89,7 @@ from countries import COUNTRY_NAMES
 import auth
 import settings
 import yara_scheduler
+from daily_report import write_report, REPORT_DIR
 
 app = Flask(__name__)
 from yara_routes import yara_bp
@@ -662,6 +664,7 @@ def settings_page():
         key_status=settings.key_rotation_status(),
         rotation_interval=settings.rotation_interval_days(),
         rotation_enabled=settings.reminders_enabled(),
+        reports=_list_reports(),
     )
 
 
@@ -788,6 +791,53 @@ def settings_rotation():
     return redirect(url_for("settings_page"))
 
 
+# --- Daily reports (list / generate / download) ---
+def _list_reports():
+    """Report JSON files on disk, newest first."""
+    try:
+        names = [f for f in os.listdir(REPORT_DIR)
+                 if f.startswith("rdpshield_report_") and f.endswith(".json")]
+    except FileNotFoundError:
+        return []
+    out = []
+    for f in sorted(names, reverse=True):
+        try:
+            st = os.stat(os.path.join(REPORT_DIR, f))
+            out.append({
+                "name": f,
+                "date": f.replace("rdpshield_report_", "").replace(".json", ""),
+                "size_kb": round(st.st_size / 1024, 1),
+                "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            })
+        except OSError:
+            pass
+    return out
+
+
+@app.route("/reports/generate", methods=["POST"])
+@auth.admin_required
+def reports_generate():
+    day = datetime.now().strftime("%Y-%m-%d")
+    try:
+        _, s = write_report(day)
+        _audit("report.generate", day)
+        flash(f"Report for {day} generated — {s['total_failed_logins']} failed logins, "
+              f"{s['total_alerts']} alerts, {s['total_blocks']} blocks.", "success")
+    except Exception as e:
+        flash(f"Report generation failed: {e}", "error")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/reports/download/<name>")
+@auth.admin_required
+def reports_download(name):
+    # Only our report files; block path traversal.
+    if ("/" in name or "\\" in name
+            or not name.startswith("rdpshield_report_") or not name.endswith(".json")):
+        return "Not found", 404
+    return send_from_directory(REPORT_DIR, name, as_attachment=True)
+
+
 # --- background reminder: nudge admins to rotate API keys every N days -----
 def _elapsed_days_since(setting_key):
     """Days since the UTC timestamp stored in `setting_key`, or None if unset."""
@@ -840,6 +890,19 @@ def _maintenance_loop():
                     print(f"[RETENTION] Auto-purged {total} rows older than {days}d ({counts}).")
         except Exception as e:
             print(f"[RETENTION] loop error: {e}")
+
+        # --- Daily JSON report (once per calendar day, self-contained) ---
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            if get_setting("last_report_run") != today:
+                yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                write_report(yesterday)   # finalise the completed day
+                write_report(today)       # current-day snapshot
+                set_setting("last_report_run", today)
+                add_audit("system", "report.generate", f"{yesterday}, {today}", "")
+                print(f"[REPORT] Generated daily reports for {yesterday} and {today}.")
+        except Exception as e:
+            print(f"[REPORT] loop error: {e}")
 
         time.sleep(3600)  # re-check hourly
 

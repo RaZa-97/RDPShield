@@ -169,16 +169,21 @@ def build_report(day):
     }
 
 
-def main():
-    day = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
+def write_report(day):
+    """Build and write the report for a YYYY-MM-DD date. Returns (path, summary).
+    Importable so the dashboard can generate reports itself (no reliance on an
+    external Task Scheduler job)."""
     os.makedirs(REPORT_DIR, exist_ok=True)
-
     report = build_report(day)
     out_path = os.path.join(REPORT_DIR, f"rdpshield_report_{day}.json")
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2, ensure_ascii=False)
+    return out_path, report["summary"]
 
-    s = report["summary"]
+
+def main():
+    day = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
+    out_path, s = write_report(day)
     print(f"[REPORT] {day}: {s['total_failed_logins']} failed logins, "
           f"{s['unique_source_ips']} IPs, {s['total_alerts']} alerts, "
           f"{s['total_blocks']} blocks, {s['total_yara_scans']} YARA scans")

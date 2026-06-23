@@ -171,6 +171,33 @@
             </form>
         </div>
 
+        <!-- DAILY REPORTS -->
+        <div class="section">
+            <h2>{{ icon('log') }} Daily Reports</h2>
+            <p class="section-desc">Machine-readable JSON archives in <code>logs/</code>, generated automatically once a day by the dashboard. Each captures that day's attackers, detections, blocks, geo &amp; YARA results.</p>
+            <form method="POST" action="/reports/generate" class="inline-form">
+                <button type="submit" class="btn-add">Generate today's report now</button>
+            </form>
+            {% if reports %}
+            <table>
+                <thead><tr><th>Date</th><th>File</th><th>Size</th><th>Generated</th><th>Download</th></tr></thead>
+                <tbody>
+                    {% for r in reports %}
+                    <tr>
+                        <td><strong>{{ r.date }}</strong></td>
+                        <td class="mono">{{ r.name }}</td>
+                        <td>{{ r.size_kb }} KB</td>
+                        <td class="muted">{{ r.mtime }}</td>
+                        <td><a href="/reports/download/{{ r.name }}" class="btn-export">{{ icon('download') }} JSON</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No reports yet — they appear here after the first daily run (or click Generate above).</p>
+            {% endif %}
+        </div>
+
         <!-- AUDIT LOG -->
         <div class="section">
             <h2>{{ icon('audit') }} Admin Audit Log</h2>
