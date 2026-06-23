@@ -744,8 +744,14 @@ def settings_retention():
     except ValueError:
         days = 0
     set_setting("retention_days", str(days))
+    # Re-arm the auto-purge so the new policy is applied at the next hourly tick.
+    set_setting("last_retention_purge", "")
     _audit("settings.retention", f"{days} days")
-    flash(f"Retention set to {days} days (0 = keep forever).", "success")
+    if days > 0:
+        flash(f"Retention set to {days} days. Older failed logins / alerts / "
+              f"geo events are now auto-purged daily (first run within the hour).", "success")
+    else:
+        flash("Retention set to keep data forever (auto-purge off).", "success")
     return redirect(url_for("settings_page"))
 
 
@@ -783,23 +789,29 @@ def settings_rotation():
 
 
 # --- background reminder: nudge admins to rotate API keys every N days -----
-def _rotation_reminder_loop():
-    """Daemon thread: every `interval` days, SMS the alert recipients/root a
-    reminder to rotate API keys. Throttled via the `last_rotation_reminder`
-    setting so restarts don't re-spam."""
+def _elapsed_days_since(setting_key):
+    """Days since the UTC timestamp stored in `setting_key`, or None if unset."""
+    last = get_setting(setting_key)
+    if not last:
+        return None
+    try:
+        dt = datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.utcnow() - dt).total_seconds() / 86400.0
+    except ValueError:
+        return None
+
+
+def _maintenance_loop():
+    """Daemon thread (hourly): API-key rotation reminders + automatic data
+    retention purge. Both throttled via stored timestamps so restarts don't
+    re-trigger them."""
     while True:
+        # --- API-key rotation reminder (every `interval` days) ---
         try:
             if settings.reminders_enabled():
                 interval = settings.rotation_interval_days()
-                last = get_setting("last_rotation_reminder")
-                due = True
-                if last:
-                    try:
-                        dt = datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")
-                        due = (datetime.utcnow() - dt).total_seconds() >= interval * 86400
-                    except ValueError:
-                        due = True
-                if due:
+                elapsed = _elapsed_days_since("last_rotation_reminder")
+                if elapsed is None or elapsed >= interval:
                     parts = []
                     for s in settings.key_rotation_status():
                         parts.append(f"{s['label']}: "
@@ -812,6 +824,23 @@ def _rotation_reminder_loop():
                     print("[REMINDER] API-key rotation reminder sent.")
         except Exception as e:
             print(f"[REMINDER] loop error: {e}")
+
+        # --- Automatic data retention purge (once per day) ---
+        try:
+            days = settings.retention_days()
+            if days > 0:
+                elapsed = _elapsed_days_since("last_retention_purge")
+                if elapsed is None or elapsed >= 1:
+                    counts = purge_old_data(days)
+                    total = sum(counts.values())
+                    set_setting("last_retention_purge",
+                                datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+                    add_audit("system", "retention.auto_purge",
+                              f">{days}d removed {total} ({counts})", "")
+                    print(f"[RETENTION] Auto-purged {total} rows older than {days}d ({counts}).")
+        except Exception as e:
+            print(f"[RETENTION] loop error: {e}")
+
         time.sleep(3600)  # re-check hourly
 
 
@@ -1189,8 +1218,8 @@ if __name__ == "__main__":
     print("[DASHBOARD] Initializing database...")
     init_db()
     _seed_default_admin()
-    # Background API-key rotation reminder (SMS). Daemon so it dies with the app.
-    threading.Thread(target=_rotation_reminder_loop, daemon=True).start()
+    # Background maintenance: key-rotation reminders + auto data-retention purge.
+    threading.Thread(target=_maintenance_loop, daemon=True).start()
     print(f"[DASHBOARD] Starting on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
     print("[DASHBOARD] Press Ctrl+C to stop.\n")
     app.run(

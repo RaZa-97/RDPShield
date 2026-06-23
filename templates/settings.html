@@ -156,9 +156,11 @@
         <!-- DATA RETENTION -->
         <div class="section">
             <h2>{{ icon('trash') }} Data Retention</h2>
-            <p class="section-desc">Auto-purge target for old failed logins / alerts / geo events. <code>0</code> = keep forever. Purge runs when you click below (or wire it into a scheduled task).</p>
+            <p class="section-desc">Failed logins / alerts / geo events older than this are <strong>auto-purged once a day</strong> by the dashboard's background job. <code>0</code> = keep forever (auto-purge off). Use <em>Purge now</em> for an immediate one-off cleanup to any cutoff.</p>
             <form method="POST" action="/settings/retention" class="inline-form">
-                <input type="number" name="retention_days" value="{{ retention_days }}" min="0" class="form-input" style="max-width:140px;">
+                <label class="ml-meta" style="display:flex;align-items:center;gap:8px;">Keep last
+                    <input type="number" name="retention_days" value="{{ retention_days }}" min="0" class="form-input" style="max-width:110px;"> days
+                </label>
                 <button type="submit" class="btn-add">Save retention</button>
             </form>
             <form method="POST" action="/settings/purge" class="inline-form confirm-form" style="margin-top:10px;"
