@@ -1,0 +1,10 @@
+<!-- PWA / installable web-app metadata (shared by every page's <head>).
+     Lets the dashboard be added to an iOS/Android home screen and run
+     full-screen ("standalone") like a native app. -->
+<meta name="theme-color" content="#0e1626">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="RDPShield">
+<link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='img/icon-180.png') }}">

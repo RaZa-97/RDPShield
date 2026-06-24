@@ -1594,3 +1594,69 @@ footer {
 .map-legend .ml-meta { color: var(--muted); }
 .map-legend .ml-key { display: inline-flex; align-items: center; gap: 7px; color: var(--text); font-weight: 600; }
 .map-legend .ldot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+
+/* =========================================================================
+   MOBILE RESPONSIVENESS  (v3.7 — phones / tablets) + PWA standalone
+   The dense multi-column tables were pushing the whole page wider than a
+   phone screen (hence the "everything shifted, pan around" feel). Each table
+   now becomes an individually side-scrollable block so the page itself stays
+   within the viewport; the top bar and sub-nav also compact down.
+   ========================================================================= */
+@media (max-width: 900px) {
+    /* Make every data table scroll horizontally inside its own card instead
+       of stretching the page. display:block turns the <table> into a scroll
+       container; nowrap keeps columns from collapsing into an unreadable mush. */
+    .section table,
+    .panel table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .section th, .section td,
+    .panel th, .panel td { white-space: nowrap; }
+    .description { max-width: none; }
+}
+
+@media (max-width: 768px) {
+    .container, .yara-wrap { padding: 14px; }
+
+    header h1 { font-size: 1.35em; }
+    header .live-pill { display: none; }   /* noisy on a phone */
+
+    /* Top bar → one tidy row: brand + bell/theme/avatar/sign-out only. */
+    .topbar { gap: 10px; padding: 10px 12px; }
+    .topbar-clock, .topbar-search { display: none; }
+    .user-meta { display: none; }           /* keep just the avatar */
+    .topbar-right { gap: 8px; }
+
+    /* Sub-nav scrolls sideways instead of wrapping onto several rows. */
+    .subnav { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .subnav::-webkit-scrollbar { height: 0; }
+    .subnav .nav-link { white-space: nowrap; }
+
+    .attack-map { height: 300px; }
+
+    /* Primary actions span the width for easier tapping. */
+    .btn-apply { width: 100%; }
+    .mode-apply { text-align: center; }
+    .yara-head .btn-row, .yara-head { width: 100%; }
+}
+
+@media (max-width: 480px) {
+    .stats-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .stat-card { padding: 16px; }
+    .stat-number { font-size: 1.7em; }
+    header h1 { font-size: 1.25em; }
+    .country-row { grid-template-columns: 80px 1fr 30px; font-size: 0.78em; }
+    .notif-panel { width: 88vw; right: -8px; }   /* dropdown fits the screen */
+    .modal-box { padding: 20px 18px; }
+    .section, .panel { padding: 18px 16px; }
+}
+
+/* Comfortable tap targets + safe-area padding when launched as an installed
+   (standalone) web app from the home screen. */
+@media (display-mode: standalone) {
+    body { padding-bottom: env(safe-area-inset-bottom); }
+    .topbar { padding-top: max(10px, env(safe-area-inset-top)); }
+}
