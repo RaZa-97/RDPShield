@@ -1,7 +1,7 @@
 # RDPShield — Project Progress & Reference
 
 > MSc Dissertation project. Windows blue-team tool for RDP brute-force detection with a Flask SOC-style dashboard.
-> Last updated: 2026-06-24  ·  App version: v3.6 (security hardening pass: secret key, CSRF, firewall input validation, temp lockouts + SMS unlock)
+> Last updated: 2026-06-24  ·  App version: v3.7 (mobile-responsive + installable PWA, optional HTTPS/TLS; on top of the v3.6 security hardening)
 
 ---
 
@@ -59,6 +59,15 @@ set PYTHONUTF8=1
 C:\Users\Administrator\AppData\Local\Programs\Python\Python311-32\python.exe <script>.py >> <log>.log 2>&1
 ```
 Python on server: **3.11 32-bit**. UTF-8 mode (`set PYTHONUTF8=1`) is required or non-ASCII attacker data crashes under SYSTEM.
+
+### Mobile responsiveness + installable PWA + optional HTTPS (v3.7, 2026-06-24)
+Made the dashboard usable on phones/tablets and installable as a home-screen web app, plus added optional TLS. No DB migration; no required `config.py` changes (all new flags are `getattr`-optional). `pip install pillow` was used **once locally** to generate icons — it is NOT a runtime dependency.
+- **Responsive CSS** (`static/style.css`, appended): dense multi-column tables become individually side-scrollable (`display:block` + `nowrap`) so the page no longer overflows the viewport (the reported "shifted/pan-around" bug); top bar compacts (drops clock + user-meta text), sub-nav scrolls sideways, tighter padding, full-width primary buttons, 2-up stat cards, screen-fitting notif dropdown/modal, and `@media (display-mode: standalone)` safe-area padding. Breakpoints 900/768/480.
+- **PWA**: `static/manifest.webmanifest` (standalone, theme/bg colors, icon set) + shared `templates/_pwa_head.html` (apple-mobile-web-app meta, manifest link, apple-touch-icon, secure-context-gated SW registration) included in every template `<head>` (all 13: index/geo/yara/list/settings/users/login/mfa/forgot/reset/unlock/403). Branded PNG icons `static/img/icon-{180,192,512}.png` generated from the shield logo.
+- **Service worker** `static/sw.js` served at root scope via a new public `/sw.js` route (sets `Service-Worker-Allowed: /`). Caches the static shell cache-first; pages + `/api/*` are network-only (no stale/sensitive caching). Registers **only in a secure context** — silently inert over plain HTTP, auto-activates once TLS is added.
+- **HTTPS/TLS (optional)**: two paths — (A) reverse proxy (Caddy + free DuckDNS hostname → trusted Let's Encrypt cert) with `DASHBOARD_BEHIND_PROXY=True` (adds `ProxyFix` so scheme + real client IP in the audit log are correct); (B) direct cert via `DASHBOARD_SSL_CERT`/`DASHBOARD_SSL_KEY` → `app.run(ssl_context=...)`. `DASHBOARD_USE_HTTPS=True` then marks the cookie Secure. New optional flags documented in `config.example.py`; full guide in `INSTALL.md` §11, phone-install steps in §12.
+- iOS/iPadOS "Add to Home Screen" works today (even over HTTP); Android install + offline needs HTTPS (Option A).
+- Verified: responsive/PWA render 17/17, service-worker route 8/8. Commit `b8c023e` (mobile/PWA) + this TLS/SW pass.
 
 ### Security hardening pass (v3.6, 2026-06-24)
 Closed a set of vulnerabilities found in a self-review (see `SECURITY.md` for the full account-security model). All changes are backward-compatible — no DB migration, no new pip dependencies (CSRF is hand-rolled), no required `config.py` edits.

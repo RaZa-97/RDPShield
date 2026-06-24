@@ -8,3 +8,14 @@
 <meta name="apple-mobile-web-app-title" content="RDPShield">
 <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/icon-180.png') }}">
+<script>
+    // Register the service worker only in a secure context — over plain HTTP it
+    // silently does nothing (browsers block SW there). Once TLS is in front,
+    // this enables offline shell + Android "Install app".
+    if ('serviceWorker' in navigator &&
+        (location.protocol === 'https:' || location.hostname === 'localhost')) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
+        });
+    }
+</script>

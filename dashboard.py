@@ -31,6 +31,7 @@ from flask import (
     Flask, render_template, jsonify, request,
     redirect, url_for, flash, session, Response, send_from_directory
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from database import (
     init_db,
     get_recent_alerts,
@@ -143,6 +144,13 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
 )
 
+# When TLS is terminated by a reverse proxy (e.g. Caddy/nginx), trust its
+# forwarded headers so request.scheme is "https" and the audit log records the
+# real client IP (X-Forwarded-For) instead of the proxy's. Off by default —
+# enable DASHBOARD_BEHIND_PROXY = True in config.py only when actually proxied.
+if getattr(config, "DASHBOARD_BEHIND_PROXY", False):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 
 def _audit(action, detail=""):
     """Record an admin/security action in the audit trail."""
@@ -169,7 +177,7 @@ def _safe_next(default=None):
 
 # Endpoints reachable WITHOUT a full login (the auth flow itself + assets).
 PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "forgot", "reset",
-                    "unlock", "unlock_verify", "static"}
+                    "unlock", "unlock_verify", "service_worker", "static"}
 
 
 @app.before_request
@@ -208,7 +216,7 @@ def require_login():
 # exempt — they run before/around session establishment and SameSite=Lax
 # already covers login CSRF.
 CSRF_EXEMPT = {"login", "mfa", "logout", "forgot", "reset",
-               "unlock", "unlock_verify", "static"}
+               "unlock", "unlock_verify", "service_worker", "static"}
 
 
 def _ensure_csrf_token():
@@ -507,6 +515,19 @@ def logout():
     _ACTIVE_USERS.pop(session.get("user_id"), None)
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/sw.js")
+def service_worker():
+    """Serve the PWA service worker from the site root so its scope is '/'
+    (a worker served from /static/ could only control /static/). Public + no
+    cache so updates roll out promptly. Only registers in a secure context
+    (the registration script in _pwa_head.html is gated to HTTPS/localhost)."""
+    resp = send_from_directory(app.static_folder, "sw.js")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 def _qr_svg(uri):
@@ -1495,10 +1516,20 @@ if __name__ == "__main__":
     _seed_default_admin()
     # Background maintenance: key-rotation reminders + auto data-retention purge.
     threading.Thread(target=_maintenance_loop, daemon=True).start()
-    print(f"[DASHBOARD] Starting on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
+
+    # Optional direct TLS: set DASHBOARD_SSL_CERT + DASHBOARD_SSL_KEY in
+    # config.py to serve HTTPS from Flask itself (no reverse proxy). Leave them
+    # unset to serve plain HTTP (the default; put Caddy/nginx in front for a
+    # trusted cert instead — see INSTALL.md).
+    cert = getattr(config, "DASHBOARD_SSL_CERT", "")
+    key = getattr(config, "DASHBOARD_SSL_KEY", "")
+    ssl_context = (cert, key) if cert and key else None
+    scheme = "https" if ssl_context else "http"
+    print(f"[DASHBOARD] Starting on {scheme}://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
     print("[DASHBOARD] Press Ctrl+C to stop.\n")
     app.run(
         host=DASHBOARD_HOST,
         port=DASHBOARD_PORT,
         debug=DASHBOARD_DEBUG,
+        ssl_context=ssl_context,
     )

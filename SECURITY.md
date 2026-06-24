@@ -149,8 +149,10 @@ the Users page (they re-enroll TOTP on next login) and reset their password.
 - **Cookie hardening:** session cookie is **HttpOnly** (not readable by JS) and
   **SameSite=Lax** (not sent on cross-site POSTs — a strong CSRF mitigation).
 - **`Secure` cookie** is set **only** when `DASHBOARD_USE_HTTPS = True` in
-  `config.py` (enable it once TLS is in front — see Section 10). On plain HTTP
-  it stays off so logins keep working.
+  `config.py`. **TLS is supported** — either a reverse proxy (Caddy, trusted
+  cert) with `DASHBOARD_BEHIND_PROXY = True`, or a direct cert via
+  `DASHBOARD_SSL_CERT`/`DASHBOARD_SSL_KEY` (full setup in `INSTALL.md` §11).
+  On plain HTTP the Secure flag stays off so logins keep working.
 - **Signed sessions:** cookies are signed with a random key stored in the
   gitignored **`.flask_secret_key`** file (generated on first run, or supplied
   via the `RDPSHIELD_SECRET` environment variable). Keep it private and
@@ -196,8 +198,9 @@ run before a session exists and are already covered by `SameSite=Lax`.
 - [ ] Set a **phone number** on every account (enables SMS reset/unlock).
 - [ ] Keep dashboard **port 5000 restricted to your admin IP** (firewall + cloud SG).
 - [ ] Add your admin/management IP to `WHITELIST_IPS` (host won't block you).
-- [ ] Put the dashboard behind a **reverse proxy with TLS**, then set
-      `DASHBOARD_USE_HTTPS = True`.
+- [ ] Put the dashboard behind a **reverse proxy with TLS** (Caddy + a free
+      DuckDNS hostname is the easy path — `INSTALL.md` §11), then set
+      `DASHBOARD_USE_HTTPS = True` and `DASHBOARD_BEHIND_PROXY = True`.
 - [ ] Keep `config.py` and `.flask_secret_key` **out of git** (already gitignored)
       and off shared drives.
 - [ ] Rotate any API keys that were ever exposed.

@@ -75,6 +75,23 @@ DASHBOARD_HOST = "0.0.0.0"  # Listen on all interfaces
 DASHBOARD_PORT = 5000
 DASHBOARD_DEBUG = False      # Set True only during development
 
+# --- HTTPS / TLS (all optional; default = plain HTTP) --------------------
+# Mark the session cookie "Secure" so it is only sent over HTTPS. Turn this ON
+# only once the dashboard is actually served over TLS (via a reverse proxy or
+# the direct cert below) — enabling it on plain HTTP locks you out of login.
+DASHBOARD_USE_HTTPS = False
+
+# Set True when a reverse proxy (Caddy/nginx) terminates TLS in front of Flask,
+# so the app trusts X-Forwarded-* (correct scheme + real client IP in the audit
+# log). See INSTALL.md §"HTTPS".
+DASHBOARD_BEHIND_PROXY = False
+
+# Direct TLS without a proxy: point these at a cert + key (PEM) and Flask serves
+# HTTPS itself. Leave blank to serve HTTP. (A reverse proxy is recommended for a
+# trusted certificate — see INSTALL.md.)
+DASHBOARD_SSL_CERT = ""
+DASHBOARD_SSL_KEY = ""
+
 # =============================================================================
 # DATABASE
 # =============================================================================

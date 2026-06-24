@@ -309,7 +309,98 @@ schema migrations run automatically on start.
 
 ---
 
-## 11. Troubleshooting
+## 11. HTTPS / TLS (do this before exposing it to the internet)
+
+The dashboard ships over plain **HTTP**, which means your admin password, your
+TOTP code, and the session cookie travel **unencrypted**. For anything beyond a
+quick lab test you should put **TLS** in front of it. TLS also unlocks the
+**installable app on Android** and offline support (iOS home-screen install
+already works without it).
+
+### Option A — Reverse proxy with a free trusted certificate (recommended)
+
+Uses **Caddy** (automatic HTTPS via Let's Encrypt). Let's Encrypt won't issue a
+cert for a bare IP, so get a **free hostname** first.
+
+1. **Free hostname:** sign up at <https://www.duckdns.org>, create e.g.
+   `myrdpshield.duckdns.org`, and point it at your server's public IP
+   (`16.170.232.91`).
+2. **Open the ports:** in the AWS Security Group (and Windows Firewall) allow
+   **TCP 443** (and **80**, needed once for the certificate challenge) — restrict
+   the source to **your admin IP** just like 5000.
+3. **Keep Flask private:** in `config.py` set `DASHBOARD_HOST = "127.0.0.1"` so
+   Flask only listens locally; Caddy is the only thing exposed.
+4. **Install Caddy:** `winget install CaddyServer.Caddy` (or download from
+   <https://caddyserver.com/download>).
+5. **Caddyfile** (create `C:\Caddy\Caddyfile`):
+   ```
+   myrdpshield.duckdns.org {
+       reverse_proxy 127.0.0.1:5000
+   }
+   ```
+6. **Run Caddy:** `caddy run --config C:\Caddy\Caddyfile` (it fetches and renews
+   the certificate automatically). To run it permanently, register it as a
+   service the same way as the RDPShield tasks.
+7. **Tell RDPShield it's behind TLS** — in `config.py`:
+   ```python
+   DASHBOARD_USE_HTTPS   = True   # mark the session cookie Secure
+   DASHBOARD_BEHIND_PROXY = True  # trust Caddy's forwarded headers + real client IP
+   ```
+   Restart the dashboard task.
+8. Visit **`https://myrdpshield.duckdns.org`** — green padlock, no warnings.
+
+### Option B — Direct self-signed cert (quick, encryption only)
+
+No proxy/hostname, but browsers will warn (untrusted) and the Android
+install/offline features won't work. Fine for a private lab.
+
+1. Generate a cert (with OpenSSL, or PowerShell's `New-SelfSignedCertificate`):
+   ```cmd
+   openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=16.170.232.91"
+   ```
+2. In `config.py`:
+   ```python
+   DASHBOARD_SSL_CERT = r"C:\Projects\RDPShield\cert.pem"
+   DASHBOARD_SSL_KEY  = r"C:\Projects\RDPShield\key.pem"
+   DASHBOARD_USE_HTTPS = True
+   ```
+3. Restart and visit **`https://16.170.232.91:5000`** (accept the one-time
+   browser warning).
+
+> ⚠️ Never set `DASHBOARD_USE_HTTPS = True` while still serving plain HTTP — the
+> browser then refuses to send the (Secure) session cookie and you can't log in.
+> Turn it on only once HTTPS is actually working.
+
+---
+
+## 12. Install it on your phone (Add to Home Screen)
+
+RDPShield is a **PWA** — it can live on your home screen and open full-screen
+like a native app.
+
+### iPhone / iPad (works even over HTTP)
+1. Open the dashboard in **Safari** (must be Safari, not Chrome) — e.g.
+   `https://myrdpshield.duckdns.org` or `http://16.170.232.91:5000`.
+2. Tap the **Share** button (the square with an up-arrow).
+3. Scroll down and tap **Add to Home Screen**.
+4. Confirm the name ("RDPShield") and tap **Add**.
+5. Launch it from the home screen — it opens full-screen with the shield icon.
+   Sign in as usual (password + TOTP).
+
+> The device must be allowed to reach the dashboard first — i.e. its current
+> public IP is in the AWS Security Group for port 5000 (HTTP) or 443 (HTTPS).
+> Phone IPs change often (mobile data / Wi-Fi), so you may need to update that
+> rule when switching networks.
+
+### Android (requires HTTPS — Option A above)
+1. Open the site in **Chrome**.
+2. Chrome shows an **Install app** prompt, or use **⋮ menu → Install app /
+   Add to Home screen**.
+3. The app installs with offline shell support (service worker).
+
+---
+
+## 13. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -330,7 +421,7 @@ schema migrations run automatically on start.
 
 ---
 
-## 12. Security notes
+## 14. Security notes
 
 - **Defensive / authorized use only.** Run it on systems you own or administer.
 - `config.py` holds live API keys/credentials — it is **gitignored**; never
