@@ -309,13 +309,22 @@ schema migrations run automatically on start.
 
 ---
 
-## 11. HTTPS / TLS (do this before exposing it to the internet)
+## 11. HTTPS / TLS — *future enhancement (not enabled for the dissertation)*
 
-The dashboard ships over plain **HTTP**, which means your admin password, your
-TOTP code, and the session cookie travel **unencrypted**. For anything beyond a
-quick lab test you should put **TLS** in front of it. TLS also unlocks the
-**installable app on Android** and offline support (iOS home-screen install
-already works without it).
+> **Current status:** RDPShield runs over plain **HTTP**, with the dashboard port
+> restricted to the operator's IP in the AWS Security Group. For this controlled,
+> single-operator **dissertation** deployment that is the accepted setup, so TLS
+> is intentionally **left for a future enhancement**. The app already ships the
+> TLS plumbing (the optional `config.py` flags + a service worker) so it can be
+> switched on later without code changes — the recipe below is kept for that.
+
+Trade-off to be aware of while on HTTP: the admin password, TOTP code, and
+session cookie travel **unencrypted**, so keep port 5000 locked to your own IP.
+Enabling TLS later also unlocks the **installable app on Android** + offline
+support (the iOS home-screen install in §12 already works without it).
+
+<details>
+<summary><strong>Recipe for when you add TLS later (click to expand)</strong></summary>
 
 ### Option A — Reverse proxy with a free trusted certificate (recommended)
 
@@ -370,6 +379,8 @@ install/offline features won't work. Fine for a private lab.
 > ⚠️ Never set `DASHBOARD_USE_HTTPS = True` while still serving plain HTTP — the
 > browser then refuses to send the (Secure) session cookie and you can't log in.
 > Turn it on only once HTTPS is actually working.
+
+</details>
 
 ---
 
@@ -429,9 +440,10 @@ like a native app.
 - `.flask_secret_key` (auto-generated) signs session cookies — **gitignored**;
   keep it private and per-server.
 - Add your **admin IP to `WHITELIST_IPS`** before going live to avoid self-lockout.
-- The dashboard runs over **plain HTTP** with a development server — keep port
-  5000 restricted to your IP; put it behind a reverse proxy + TLS (then set
-  `DASHBOARD_USE_HTTPS = True`) for anything beyond a lab/dissertation demo.
+- The dashboard runs over **plain HTTP** with a development server — for this
+  dissertation deployment that's accepted, mitigated by keeping port 5000
+  restricted to your admin IP. **TLS is a documented future enhancement** (§11),
+  not a current step.
 - Logins require **password + TOTP two-factor**; accounts auto-lock temporarily
   after repeated failures and can be unlocked by SMS. **Full details of the
   account-security model are in [`SECURITY.md`](SECURITY.md).**

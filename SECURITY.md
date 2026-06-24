@@ -148,11 +148,13 @@ the Users page (they re-enroll TOTP on next login) and reset their password.
   **12 hours**.
 - **Cookie hardening:** session cookie is **HttpOnly** (not readable by JS) and
   **SameSite=Lax** (not sent on cross-site POSTs — a strong CSRF mitigation).
-- **`Secure` cookie** is set **only** when `DASHBOARD_USE_HTTPS = True` in
-  `config.py`. **TLS is supported** — either a reverse proxy (Caddy, trusted
-  cert) with `DASHBOARD_BEHIND_PROXY = True`, or a direct cert via
-  `DASHBOARD_SSL_CERT`/`DASHBOARD_SSL_KEY` (full setup in `INSTALL.md` §11).
-  On plain HTTP the Secure flag stays off so logins keep working.
+- **Transport:** the dissertation deployment runs over **plain HTTP**, mitigated
+  by restricting the dashboard port to the operator's IP. **HTTPS/TLS is a
+  planned future enhancement** — the hooks already exist (`DASHBOARD_USE_HTTPS`
+  to mark the cookie `Secure`, `DASHBOARD_BEHIND_PROXY` for a reverse proxy, or
+  `DASHBOARD_SSL_CERT`/`_KEY` for a direct cert; recipe in `INSTALL.md` §11) but
+  are intentionally left off for now. On plain HTTP the `Secure` flag stays off
+  so logins keep working.
 - **Signed sessions:** cookies are signed with a random key stored in the
   gitignored **`.flask_secret_key`** file (generated on first run, or supplied
   via the `RDPSHIELD_SECRET` environment variable). Keep it private and
@@ -198,9 +200,10 @@ run before a session exists and are already covered by `SameSite=Lax`.
 - [ ] Set a **phone number** on every account (enables SMS reset/unlock).
 - [ ] Keep dashboard **port 5000 restricted to your admin IP** (firewall + cloud SG).
 - [ ] Add your admin/management IP to `WHITELIST_IPS` (host won't block you).
-- [ ] Put the dashboard behind a **reverse proxy with TLS** (Caddy + a free
-      DuckDNS hostname is the easy path — `INSTALL.md` §11), then set
-      `DASHBOARD_USE_HTTPS = True` and `DASHBOARD_BEHIND_PROXY = True`.
+- [ ] *(Future enhancement)* Put the dashboard behind a **reverse proxy with
+      TLS** (Caddy + a free DuckDNS hostname is the easy path — `INSTALL.md`
+      §11), then set `DASHBOARD_USE_HTTPS = True` and
+      `DASHBOARD_BEHIND_PROXY = True`. Not required for the dissertation demo.
 - [ ] Keep `config.py` and `.flask_secret_key` **out of git** (already gitignored)
       and off shared drives.
 - [ ] Rotate any API keys that were ever exposed.

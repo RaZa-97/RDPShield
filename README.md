@@ -162,7 +162,7 @@ Key settings in `config.py` (see `config.example.py` for the full template):
 
 - **Account security model** — sign-in (password + TOTP), roles, account lockouts, SMS self-unlock recovery, session/cookie hardening, and CSRF are documented in **[`SECURITY.md`](SECURITY.md)**.
 - **`config.py` is gitignored** and must never be committed — it holds live API keys and credentials. Use `config.example.py` as the template. The auto-generated **`.flask_secret_key`** (session signing) is also gitignored — keep it private and per-server.
-- The dashboard runs over **plain HTTP** with a development server — keep port 5000 restricted to your admin IP, and put it behind a reverse proxy + TLS (then set `DASHBOARD_USE_HTTPS = True`) before exposing it beyond a lab.
+- The dashboard runs over **plain HTTP** with a development server, with port 5000 restricted to the admin IP — the accepted setup for this dissertation deployment. **HTTPS/TLS is a documented future enhancement** (hooks are in place; see `INSTALL.md` §11), not a current step.
 - RDPShield blocks **all inbound traffic** from a detected IP. Always add your own admin IP to `WHITELIST_IPS` before enabling geo-blocking or testing, to avoid locking yourself out.
 - This is a **defensive** tool intended for systems you own or are authorized to protect.
 
