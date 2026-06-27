@@ -22,6 +22,7 @@ evidence/
       T4_persistent/           T4 evidence
       T5_geo_whitelist/        T5 evidence
       T6_legit_login/          T6 evidence (false-positive check)
+      T7_reputation/           T7 evidence (reputation alert/auto-block + SMS)
     hardening/                 Table 8  - security hardening pass/fail output
   data/                        Auto-generated tables (collect_evidence.py output)
   logs/                        Daily JSON reports + agent log slices per test
@@ -84,6 +85,7 @@ Output lands in `evidence/data/<timestamp>/`:
 - [ ] T4 - persistent / low-and-slow (`--mode persistent`)
 - [ ] T5 - geo / whitelist block   (set restrictive mode, single connect, then reset)
 - [ ] T6 - legitimate login w/ 1-2 typos (must NOT alert - false-positive check)
+- [ ] T7 - reputation / threat-intel (low-volume known-bad IP -> alert/auto-block)
 
 ### Data + hardening
 - [ ] Ran `collect_evidence.py` on the server -> Tables 4-7 in `data/`

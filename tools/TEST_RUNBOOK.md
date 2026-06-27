@@ -1,7 +1,7 @@
-# RDPShield — Test Runbook (T1–T6) for Dissertation Chapter 6
+# RDPShield — Test Runbook (T1–T7) for Dissertation Chapter 6
 
-> All six controlled tests in one place. Run each, watch the dashboard, and fill
-> Table 3 (detected/blocked/SMS) and Table 4 (latency) in the dissertation.
+> All seven controlled tests in one place. Run each, watch the dashboard, and fill
+> Table 6 (detected/blocked/SMS) and the latency table in the dissertation.
 >
 > ⚠ **Authorisation:** only against YOUR own server, and **from a different
 > network than you administer it from** (e.g. a phone hotspot) so RDPShield
@@ -50,13 +50,16 @@ hydra -t 1 -L users.txt -p 'Password123!' rdp://$TARGET
 ```
 **Expect:** a `password_spray` alert naming multiple usernames.
 
-## T4 — Persistent / low-and-slow  *(cumulative catch-all)*
+## T4 — Persistent / low-and-slow  *(cumulative catch-all, 15 failures / 24 h)*
 ```bash
 python3 slow_attack_test.py -t $TARGET -u $USER --mode persistent
 ```
-**Expect:** a `persistent_attack` alert from the cumulative detector after the
-others’ short windows have lapsed (~20 min). This is your strongest evidence
+(17 attempts @75 s, ~21 min — paced to stay under brute force *and* slow-and-low.)
+**Expect:** a `persistent_attack` alert once the cumulative count crosses **15**,
+with no short window ever reaching its threshold. This is your strongest evidence
 that layering detectors catches paced attackers.
+> Note: the threshold is `PERSISTENT_MAX_FAILURES` (now 15, was 5). Confirm the
+> server `config.py` has 15 (it's gitignored — `git pull` won't change it).
 
 ## T5 — Geo / whitelist block  *(access control, not behaviour)*
 1. On the dashboard → **Advanced Security**, set a restrictive mode:
@@ -79,10 +82,23 @@ password once or twice, then enter the correct one and log in successfully.
 **Expect:** **no** alert and **no** block — a legitimate user with a typo should
 not be punished. Record this as your false-positive result.
 
+## T7 — Reputation / threat-intel  *(low-volume, reputation-driven)*
+Catches a known-bad IP that trips **no** count rule. The hard part is a
+reputable-bad source IP — use a Tor/known-bad VPN exit, **or** temporarily lower
+the bar to exercise the path: set `REPUTATION_ALERT_SCORE = 1` (keep
+`REPUTATION_MIN_ATTEMPTS = 3`) in the server `config.py`, restart the agent.
+```bash
+for i in 1 2 3 4; do hydra -t 1 -l $USER -p "x$i" rdp://$TARGET; sleep 30; done
+python3 window_check.py $ATTACKER_IP   # shows brute<5/60s and slow<10/600s — count rules miss it
+```
+**Expect:** a `reputation_alert` + SMS to the SOC. If AbuseIPDB ≥ 85% (or ≥ 50%
+and VirusTotal flags it) the IP is **blocked** too; otherwise it's **alert-only**.
+Re-running within 24 h won't re-text (dedup). **Reset `REPUTATION_ALERT_SCORE` to 50.**
+
 ---
 
-## After all six tests
-- Fill **Table 3** (Detected / Blocked / SMS, Yes/No for T1–T6).
+## After all seven tests
+- Fill **Table 3 / Table 6** (Detected / Blocked / SMS, Yes/No for T1–T7).
 - Fill **Table 4** (latency): read timestamps from the agent log and the
   `alerts` / `blocked_ips` rows; latency = block time − first-attempt time.
 - Capture **Figure 6** (attacker terminal + dashboard alert + SMS) during T1.

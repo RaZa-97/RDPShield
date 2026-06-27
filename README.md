@@ -17,12 +17,12 @@ surfaced through a live SOC-style web dashboard.
 
 ## Overview
 
-RDPShield watches Windows logon events (4625 / 4624) in real time and applies three
-detection algorithms to identify brute-force, slow-and-low, and password-spray attacks.
-When an attack is detected it enriches the attacker IP (geolocation + abuse reputation),
-blocks it at the firewall, triggers a YARA scan of the host, and notifies the
-administrator by SMS. A Flask dashboard provides live monitoring, geographic access
-control, and a YARA scan controller.
+RDPShield watches Windows logon events (4625 / 4624) in real time and applies five
+detection algorithms to identify brute-force, slow-and-low, password-spray, persistent
+low-and-slow, and reputation-flagged attacks. When an attack is detected it enriches the
+attacker IP (geolocation + abuse reputation), blocks it at the firewall, triggers a YARA
+scan of the host, and notifies the administrator by SMS. A Flask dashboard provides live
+monitoring, geographic access control, and a YARA scan controller.
 
 > Developed as an MSc dissertation project.
 
@@ -30,10 +30,12 @@ control, and a YARA scan controller.
 
 ## Features
 
-- **Three detection algorithms**
+- **Five detection algorithms**
   - Fast brute force — 5 failed logins in 60 s
   - Slow-and-low — 10 failed logins in 600 s (with timing-regularity analysis)
   - Password spray — 4+ unique usernames in 300 s
+  - Persistent / low-and-slow — 15 cumulative failed logins in 24 h (catch-all for very slow attackers)
+  - Reputation / threat-intel — low-volume IPs flagged by AbuseIPDB (cached) and VirusTotal; tiered alert (≥50%) / auto-block (≥85%)
 - **Automatic response** — blocks attacker IPs via Windows Firewall (`netsh`), with whitelist protection against self-lockout
 - **IP enrichment** — geolocation (country / city / ISP) via [ip-api.com] and abuse reputation scoring via [AbuseIPDB]
 - **Geographic access control** — three modes: allow anywhere, IP whitelist only, or country whitelist
@@ -152,6 +154,8 @@ Key settings in `config.py` (see `config.example.py` for the full template):
 | `BRUTE_FORCE_MAX_FAILURES` / `_TIME_WINDOW` | 5 / 60 s | Fast brute-force threshold |
 | `SLOW_ATTACK_MAX_FAILURES` / `_TIME_WINDOW` | 10 / 600 s | Slow-and-low threshold |
 | `SPRAY_MAX_USERNAMES` / `_TIME_WINDOW` | 4 / 300 s | Password-spray threshold |
+| `PERSISTENT_MAX_FAILURES` / `_TIME_WINDOW` | 15 / 86400 s | Persistent low-and-slow threshold |
+| `REPUTATION_ALERT_SCORE` / `_BLOCK_SCORE` | 50 / 85 | Reputation alert / auto-block AbuseIPDB % |
 | `AUTO_BLOCK_ENABLED` | `True` | Auto-block detected attackers |
 | `WHITELIST_IPS` | localhost + server | IPs that are never blocked |
 | `GEO_BLOCK_ENABLED` | `True` | Enable geographic access control |
