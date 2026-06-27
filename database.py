@@ -29,16 +29,24 @@ from config import DATABASE_PATH
 # Event Log "...Z" times), while alerts.timestamp / yara_scans.* are written in
 # local server time via datetime.now(). That mismatch made the dashboard tables
 # disagree with each other and with the wall clock. These helpers convert the
-# UTC columns to local time *for display only* — stored data and the detection
+# UTC columns to Colombo time *for display only* — stored data and the detection
 # logic (which parses the raw UTC timestamps) are left completely untouched.
 
+# Display timezone = Asia/Colombo (Sri Lanka). It's a FIXED UTC+5:30 (no DST),
+# so a fixed-offset zone is exact and — unlike zoneinfo("Asia/Colombo") — needs
+# no IANA tz database (tzdata), which Windows lacks by default. Pinning the
+# offset means the dashboard reads in Sri Lanka time even if the server's OS
+# clock is ever set to UTC.
+DISPLAY_TZ = timezone(timedelta(hours=5, minutes=30))
+
+
 def utc_to_local_str(ts):
-    """Convert a stored UTC timestamp string to a local-time display string.
+    """Convert a stored UTC timestamp string to an Asia/Colombo display string.
 
     Tolerates the Event-Log form ('2026-06-27T09:03:28.6098517Z'), the SQLite
     CURRENT_TIMESTAMP form ('2026-06-27 09:03:28') and plain ISO 'T'. Returns
-    'YYYY-MM-DD HH:MM:SS' in the server's local zone. Empty / unparseable input
-    is returned unchanged. Display-only — never use for detection windows.
+    'YYYY-MM-DD HH:MM:SS' in Colombo time. Empty / unparseable input is returned
+    unchanged. Display-only — never use for detection windows.
     """
     if not ts:
         return ts
@@ -48,10 +56,24 @@ def utc_to_local_str(ts):
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
             dt = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-            return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            return dt.astimezone(DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S")
         except ValueError:
             continue
     return ts
+
+
+def local_ts_display(ts):
+    """Normalize an ALREADY-local timestamp (alerts.timestamp / yara_scans.*,
+    written by datetime.now()) for display: 'T' -> space, drop fractional
+    seconds, trim to whole seconds. No timezone shift — these are already in the
+    server's local (Colombo) time — just a uniform 'YYYY-MM-DD HH:MM:SS' format
+    so every table matches."""
+    if not ts:
+        return ts
+    s = str(ts).strip().replace("T", " ")
+    if "." in s:
+        s = s.split(".", 1)[0]
+    return s[:19]
 
 
 # Canonical, human-readable names for every detection / block reason and login
@@ -695,7 +717,9 @@ def get_recent_alerts(limit=50):
     out = []
     for row in rows:
         d = dict(row)
-        # alerts.timestamp is already local (datetime.now); just add a label.
+        # alerts.timestamp is already local (datetime.now) — normalize its format
+        # (no tz shift) and add a standardized label.
+        d["timestamp"] = local_ts_display(d.get("timestamp"))
         d["type_label"] = attack_label(d.get("alert_type"))
         out.append(d)
     return out
