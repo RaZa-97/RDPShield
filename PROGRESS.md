@@ -1,7 +1,7 @@
 # RDPShield — Project Progress & Reference
 
 > MSc Dissertation project. Windows blue-team tool for RDP brute-force detection with a Flask SOC-style dashboard.
-> Last updated: 2026-06-24  ·  App version: v3.7 (mobile-responsive + installable PWA, optional HTTPS/TLS; on top of the v3.6 security hardening)
+> Last updated: 2026-06-25  ·  App version: v3.8 (ML per-IP threat scoring; on top of v3.7 mobile/PWA + v3.6 security harde     ning)
 
 ---
 
@@ -9,7 +9,7 @@
 
 **Live deployment:** AWS EC2 Windows Server, public IP `16.170.232.91`, dashboard at `http://16.170.232.91:5000` (and `http://localhost:5000` inside RDP).
 **GitHub:** https://github.com/RaZa-97/RDPShield (branch `main`). The server is a git clone — deploy with `git pull`.
-**Attacker test box:** BlackArch Linux VM (attacks from a mobile hotspot so the admin/home-wifi IP is never blocked).
+**Attacker test box:** Kali Linux VM on ProtonVPN (the VPN exit IP gets blocked, never the admin/home-wifi IP; a mobile hotspot is an alternative).
 
 ### Deployment workflow (server)
 ```cmd
@@ -69,6 +69,29 @@ Made the dashboard usable on phones/tablets and installable as a home-screen web
 - iOS/iPadOS "Add to Home Screen" works today (even over HTTP); Android install + offline needs HTTPS (Option A).
 - Verified: responsive/PWA render 17/17, service-worker route 8/8. Commit `b8c023e` (mobile/PWA) + this TLS/SW pass.
 
+### ML per-IP threat scoring (v3.8, 2026-06-25) — infrastructure built; model training deferred
+A supervised machine-learning layer that scores every attacker IP **0–100** and *augments* (does not replace) the rule engine. New **Threat Scoring** page (`/ml`) — model status card, feature-importance bars, and a live table of the riskiest IPs. **No DB migration, no new server dependencies, no required config.py changes.**
+
+> **STATUS — the pipeline is complete and deployed; the trained model is held as a FUTURE ENHANCEMENT until the honeypot has collected enough data.** The code path is proven end-to-end on real EC2 data, but a meaningful model needs more samples than the honeypot has so far (a trial run on 2026-06-25 had only **20 IPs / 4 benign**, too few to train a credible classifier — ROC-AUC was a small-sample coin-flip and `abuse_score` was 0 for every IP because none were AbuseIPDB-reported). The placeholder model was deleted, so **no `ml_model.json` is committed** and the live `/ml` page renders the clean "no model trained yet" state. **To activate:** let the honeypot run until ~100+ distinct IPs with ~20–30 benign negatives, then `python train_model.py rdpshield_train.db`, commit `ml_model.json`, and `git pull` on the server — no restart needed (the scorer auto-loads it).
+>
+> Two refinements noted for the activation pass (not yet applied): (1) tighten the weak label to fire only on *behavioural* detectors (brute_force/spray/slow/persistent), excluding geo/manual blocks, to remove low-volume label noise; (2) add a "too few benign samples" readiness warning to `train_model.py`.
+
+**Train/serve split (because the server is 32-bit Python where scikit-learn wheels are painful — same class of problem as psutil 7.x):**
+- **Training runs OFFLINE on a 64-bit box** (`pip install scikit-learn`), reads `rdpshield.db`, and exports a portable **`ml_model.json`** (the Random Forest serialised as plain decision-tree arrays).
+- **Scoring runs ON THE SERVER in pure stdlib Python** — `ml_model.py` walks the JSON trees, no sklearn/numpy. Verified end-to-end: server scoring path imports zero ML libraries.
+- Workflow: `python train_model.py` locally → commit `ml_model.json` → `git pull` on server. `ml_model.json` is **not gitignored** (it's the deployment artifact). The model auto-reloads when the file's mtime changes; no restart needed.
+
+**Files:**
+- `ml_features.py` — pure-stdlib feature engineering, the single source of truth for what a feature is (shared by trainer + scorer so they can never drift). 11 numeric per-IP features: `failed_login_count, unique_usernames, username_ratio, active_span_hours, attempts_per_hour, max_burst_60s, distinct_days, night_ratio, admin_target_ratio, abuse_score, has_geo`.
+- `train_model.py` — offline trainer: builds the matrix, trains a `RandomForestClassifier` (120 trees, depth 8, `class_weight='balanced'`), prints ROC-AUC + confusion matrix + classification report + feature importances, exports `ml_model.json`.
+- `ml_model.py` — server-side inference: `score_active_ips()` (cached 300s), `score_ip()`, `model_info()`, `model_available()`. Degrades gracefully when untrained (returns `[]`/`None`; the `/ml` page shows a "no model yet" state).
+
+**Weak labelling (no leakage):** there's no human "malicious" column, so the label is derived from the rule engine's own verdict — an IP is positive (1) if it was **blocked OR alerted**. Those two inputs are deliberately **excluded from the features**, so the model isn't copying the answer back to itself; it learns to predict the verdict from raw behaviour + external reputation, which lets it put a *continuous* score on IPs the fixed thresholds never tripped (the interesting low-and-slow cases). Honest dissertation framing: rule-based detection vs. a learned model, with feature importances + ROC/PR to discuss.
+
+**Dashboard wiring:** `import ml_model` in `dashboard.py`; routes `/ml` (page), `/api/threat_scores` (riskiest IPs JSON, cached), `/api/ml_info` (model metadata); nav link "Threat Scoring" in `_topbar.html`; template `templates/ml.html` (self-contained CSS + JS, 30s refresh). Degrades gracefully when untrained.
+
+**Verified:** (a) full pipeline on a synthetic 157-IP honeypot DB — train → export → pure-stdlib score with **zero ML libraries imported on the scoring path**; page renders, both APIs 200, malicious IPs → 100/critical, benign → 0/low; (b) the real EC2 data trial above (ran cleanly, data just too thin yet); (c) the untrained "no model yet" path renders cleanly via the Flask test client.
+
 ### Security hardening pass (v3.6, 2026-06-24)
 Closed a set of vulnerabilities found in a self-review (see `SECURITY.md` for the full account-security model). All changes are backward-compatible — no DB migration, no new pip dependencies (CSRF is hand-rolled), no required `config.py` edits.
 - **Session secret** — was a hardcoded, repo-published string (forged-cookie auth/MFA bypass). Now generated once and read from the `RDPSHIELD_SECRET` env var or a **gitignored `.flask_secret_key`** file (`_load_secret_key` in `dashboard.py`). First restart on a server invalidates old cookies → everyone logs in once more.
@@ -113,7 +136,7 @@ Gitignored (server/local only): `config.py`, `rdpshield.db`, `*.log`, `logs/`, `
 ### Known design notes
 - **Detection, not prevention:** RDPShield reads the event log *after* a login, so an attacker with valid creds briefly connects before the firewall block kicks in (~20–30s). *Not yet built:* immediate RDP session-kill + proactive whitelist firewall (only-allow-3389-from-whitelist) — the "#1 prevention" enhancement, still pending.
 - VT/AbuseIPDB scores are 0 for the user's own SL test IPs (not reported) — correct; real botnets score high.
-- **Future enhancements (deferred for the dissertation):** (1) **HTTPS/TLS** — plumbing in place (v3.7), left off; run on HTTP with port 5000 restricted to the admin IP for now. (2) immediate RDP session-kill + proactive whitelist firewall (the "#1 prevention" item above). (3) Android-installable PWA + offline (needs TLS first; the service worker already self-activates once HTTPS is on).
+- **Future enhancements (deferred for the dissertation):** (1) **HTTPS/TLS** — plumbing in place (v3.7), left off; run on HTTP with port 5000 restricted to the admin IP for now. (2) immediate RDP session-kill + proactive whitelist firewall (the "#1 prevention" item above). (3) Android-installable PWA + offline (needs TLS first; the service worker already self-activates once HTTPS is on). (4) **ML threat-scoring model activation (v3.8)** — full pipeline built + deployed in the "no model yet" state; train + commit `ml_model.json` once the honeypot reaches ~100+ IPs / ~20–30 benign (see the v3.8 section above), optionally with the label-tightening + readiness-warning refinements. A complementary unsupervised model (Isolation Forest) was also floated for a supervised-vs-unsupervised comparison.
 
 ---
 
@@ -511,16 +534,17 @@ pip install flask requests pywin32 yara-python psutil==6.1.1 pyotp qrcode
 
 ## Attack Testing (authorized — own infrastructure)
 
-Testing RDPShield's detection by attacking the EC2 server from a self-owned BlackArch Linux VM. This validates the full detect → alert → block → enrich → YARA flow against a live public target.
+Testing RDPShield's detection by attacking the EC2 server from a self-owned Kali Linux VM. This validates the full detect → alert → block → enrich → YARA flow against a live public target.
 
 ### Lockout risk — critical
 `firewall.py` blocks with `netsh ... action=block remoteip={ip}` and **no port** → blocks **ALL inbound traffic** from the attacker IP (RDP 3389 AND dashboard 5000), and the rule **persists across reboots**. So attacking from the same public IP used to administer the server = full self-lockout.
 
 ### Mitigation: attack from a different network
-- BlackArch VM attacks via **mobile hotspot** (carrier public IP).
+- Kali VM attacks via **ProtonVPN** (the VPN exit IP, different from the admin IP). A mobile hotspot is an alternative source of a separate public IP.
 - Admin machine / RDP / dashboard stays on **home broadband** (different public IP).
-- RDPShield blocks the carrier IP; home IP keeps full access.
-- Recovery if locked out: disconnect hotspot → reconnect home wifi (different IP, never blocked) → RDP back in and unblock from dashboard. Backstop: reboot home router for a fresh residential IP.
+- RDPShield blocks the VPN exit / carrier IP; home IP keeps full access.
+- ProtonVPN also lets you choose the exit **country**, generating real `geo_block` evidence and a wider Table 7 country spread on demand.
+- Recovery if locked out: disconnect the VPN/hotspot → reconnect home wifi (different IP, never blocked) → RDP back in and unblock from dashboard. Backstop: reboot home router for a fresh residential IP.
 
 ### Detection thresholds to trip (from config.py)
 | Attack | Trigger | Window |
@@ -531,7 +555,7 @@ Testing RDPShield's detection by attacking the EC2 server from a self-owned Blac
 
 > Note: once any attack triggers a block, the attacker IP is blocked for ALL ports, so further attacks from the same IP can't reach the server. To demo multiple attack types, unblock between tests (or set `AUTO_BLOCK_ENABLED=False` temporarily to collect alerts without blocking).
 
-### Attack commands (run on BlackArch VM)
+### Attack commands (run on Kali VM)
 
 Confirm attacker public IP (the one that should get blocked):
 ```bash
@@ -548,7 +572,7 @@ Throwaway (all-fake) password list:
 printf 'Winter2024\nPassword1\nadmin123\nLetmein2024\nQwerty123\nSummer2024\nWelcome1\nP@ssw0rd\nChangeme1\nAdmin@123\n' > /tmp/pw.txt
 ```
 
-Brute-force attack (hydra ships with BlackArch):
+Brute-force attack (hydra ships with Kali):
 ```bash
 hydra -t 4 -V -l administrator -P /tmp/pw.txt rdp://16.170.232.91
 # --login is the long form of -l (lowercase L, not the number 1)

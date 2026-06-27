@@ -150,7 +150,7 @@
                             {% elif e.abuse_score >= 25 %}<span class="score-medium">{{ e.abuse_score }}%</span>
                             {% else %}<span class="score-low">{{ e.abuse_score }}%</span>{% endif %}
                         </td>
-                        <td>{{ e.event_type }}</td>
+                        <td>{{ e.event_label or e.event_type }}</td>
                         <td>
                             {% if e.action == 'blocked' %}<span class="badge badge-geo-blocked">BLOCKED</span>
                             {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}
@@ -298,7 +298,7 @@
                             {% elif e.abuse_score >= 25 %}<span class="score-medium">{{ e.abuse_score }}%</span>
                             {% else %}<span class="score-low">{{ e.abuse_score }}%</span>{% endif %}
                         </td>
-                        <td>{{ e.event_type }}</td>
+                        <td>{{ e.event_label or e.event_type }}</td>
                         <td>
                             {% if e.action == 'blocked' %}<span class="badge badge-geo-blocked">BLOCKED</span>
                             {% else %}<span class="badge badge-geo-allowed">ALLOWED</span>{% endif %}

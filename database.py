@@ -18,8 +18,91 @@ Tables (new in v2.0 - for geo-blocking):
 
 import sqlite3
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from config import DATABASE_PATH
+
+
+# =============================================================================
+# DISPLAY HELPERS (timestamps + standardized attack/event labels)
+# =============================================================================
+# Some columns are stored in UTC (SQLite CURRENT_TIMESTAMP, and the Windows
+# Event Log "...Z" times), while alerts.timestamp / yara_scans.* are written in
+# local server time via datetime.now(). That mismatch made the dashboard tables
+# disagree with each other and with the wall clock. These helpers convert the
+# UTC columns to local time *for display only* — stored data and the detection
+# logic (which parses the raw UTC timestamps) are left completely untouched.
+
+def utc_to_local_str(ts):
+    """Convert a stored UTC timestamp string to a local-time display string.
+
+    Tolerates the Event-Log form ('2026-06-27T09:03:28.6098517Z'), the SQLite
+    CURRENT_TIMESTAMP form ('2026-06-27 09:03:28') and plain ISO 'T'. Returns
+    'YYYY-MM-DD HH:MM:SS' in the server's local zone. Empty / unparseable input
+    is returned unchanged. Display-only — never use for detection windows.
+    """
+    if not ts:
+        return ts
+    s = str(ts).strip().replace("Z", "").replace("T", " ")
+    if "." in s:
+        s = s.split(".", 1)[0]                 # drop fractional seconds
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+            return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    return ts
+
+
+# Canonical, human-readable names for every detection / block reason and login
+# event. Single source of truth so every table in the UI labels things the same
+# way ("Persistent Attack", not "persistent_attack").
+ATTACK_LABELS = {
+    "brute_force":       "Brute Force",
+    "slow_attack":       "Slow-and-Low",
+    "password_spray":    "Password Spray",
+    "persistent_attack": "Persistent Attack",
+    "geo_block":         "Geo Block",
+    "whitelist_block":   "Non-Whitelisted IP",
+    "manual_block":      "Manual Block",
+    "manual":            "Manual Block",
+    "manual_memory":     "Manual (Memory)",
+}
+
+EVENT_LABELS = {
+    "failed_login":     "Login Failure",
+    "successful_login": "Successful Login",
+}
+
+
+def attack_label(alert_type):
+    """Standardized display name for an alert/block type. Unknown types are
+    title-cased as a graceful fallback; empty/None becomes an em dash."""
+    if not alert_type:
+        return "—"
+    return ATTACK_LABELS.get(alert_type, str(alert_type).replace("_", " ").title())
+
+
+def event_label(event_type):
+    """Standardized display name for a login event type."""
+    if not event_type:
+        return "—"
+    return EVENT_LABELS.get(event_type, str(event_type).replace("_", " ").title())
+
+
+def _derive_attack_method(reason, alert_type):
+    """Best-effort canonical attack-method key for a blocked IP. Prefers the
+    reason prefix the detector wrote ('brute_force: ...'), then a manual-block
+    phrase, then the most recent alert type for the IP."""
+    reason = (reason or "").strip()
+    prefix = reason.split(":", 1)[0].strip().lower().replace(" ", "_")
+    if prefix in ATTACK_LABELS:
+        return prefix
+    if "manual" in reason.lower():
+        return "manual_block"
+    if alert_type:
+        return alert_type
+    return "manual_block" if reason else ""
 
 
 def get_connection():
@@ -511,11 +594,18 @@ def is_ip_blocked(ip_address):
 
 
 def get_failed_logins_for_ip(source_ip, since_seconds):
-    """Get all failed logins for a specific IP within a time window."""
+    """Get all failed logins for a specific IP within a time window.
+
+    failed_logins.timestamp is stored in UTC (Windows Event Log '...Z'), so the
+    cutoff MUST be computed in UTC too. Using local time here (the old bug) made
+    the window compare two clocks 5.5h apart on the Colombo server, so the short
+    detectors (brute/slow/spray) never matched. The 'T' separator + UTC zone
+    match the stored ISO format for a correct lexical string comparison.
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    cutoff = datetime.now().timestamp() - since_seconds
-    cutoff_str = datetime.fromtimestamp(cutoff).isoformat()
+    cutoff_str = (datetime.now(timezone.utc)
+                  - timedelta(seconds=since_seconds)).strftime("%Y-%m-%dT%H:%M:%S")
     cursor.execute("""
         SELECT * FROM failed_logins
         WHERE source_ip = ? AND timestamp >= ?
@@ -565,11 +655,15 @@ def count_failed_attempts(source_ip):
 
 
 def get_unique_usernames_for_ip(source_ip, since_seconds):
-    """Get unique usernames targeted by an IP within a time window."""
+    """Get unique usernames targeted by an IP within a time window.
+
+    Same UTC requirement as get_failed_logins_for_ip: the cutoff is computed in
+    UTC to match the UTC-stored timestamps (this powers password-spray detection).
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    cutoff = datetime.now().timestamp() - since_seconds
-    cutoff_str = datetime.fromtimestamp(cutoff).isoformat()
+    cutoff_str = (datetime.now(timezone.utc)
+                  - timedelta(seconds=since_seconds)).strftime("%Y-%m-%dT%H:%M:%S")
     cursor.execute("""
         SELECT DISTINCT username FROM failed_logins
         WHERE source_ip = ? AND timestamp >= ?
@@ -598,7 +692,13 @@ def get_recent_alerts(limit=50):
     """, (limit,))
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    out = []
+    for row in rows:
+        d = dict(row)
+        # alerts.timestamp is already local (datetime.now); just add a label.
+        d["type_label"] = attack_label(d.get("alert_type"))
+        out.append(d)
+    return out
 
 
 def get_blocked_ips(limit=None):
@@ -619,7 +719,10 @@ def get_blocked_ips(limit=None):
                 WHERE gc.ip_address = b.ip_address) AS isp,
                (SELECT a.abuse_score FROM alerts a
                 WHERE a.source_ip = b.ip_address
-                ORDER BY a.id DESC LIMIT 1) AS abuse_score
+                ORDER BY a.id DESC LIMIT 1) AS abuse_score,
+               (SELECT a.alert_type FROM alerts a
+                WHERE a.source_ip = b.ip_address
+                ORDER BY a.id DESC LIMIT 1) AS alert_type
         FROM blocked_ips b
         WHERE b.is_active = 1
         ORDER BY b.blocked_at DESC
@@ -630,7 +733,14 @@ def get_blocked_ips(limit=None):
         cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    out = []
+    for row in rows:
+        d = dict(row)
+        d["blocked_at"] = utc_to_local_str(d.get("blocked_at"))   # UTC -> local
+        d["attack_method"] = attack_label(
+            _derive_attack_method(d.get("reason"), d.get("alert_type")))
+        out.append(d)
+    return out
 
 
 def get_recent_failed_logins(limit=100):
@@ -653,7 +763,14 @@ def get_recent_failed_logins(limit=100):
     """, (limit,))
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    out = []
+    for row in rows:
+        d = dict(row)
+        d["timestamp"] = utc_to_local_str(d.get("timestamp"))     # UTC(Z) -> local
+        # Every row here is an Event 4625 — label it as such for consistency.
+        d["event_label"] = "Login Failure"
+        out.append(d)
+    return out
 
 
 def get_dashboard_stats():
@@ -702,10 +819,14 @@ def get_failed_login_trend(days=14):
     """
     conn = get_connection()
     cursor = conn.cursor()
+    # failed_logins.timestamp is UTC; bucket by LOCAL calendar day (via SQLite's
+    # 'localtime' modifier) so the trend chart's days line up with the localized
+    # timestamps shown in the tables, instead of splitting late-night events
+    # onto the wrong day.
     cursor.execute("""
-        SELECT substr(timestamp, 1, 10) as day, COUNT(*) as cnt
+        SELECT substr(datetime(timestamp, 'localtime'), 1, 10) as day, COUNT(*) as cnt
         FROM failed_logins
-        WHERE timestamp >= date('now', ?)
+        WHERE datetime(timestamp, 'localtime') >= datetime('now', 'localtime', ?)
         GROUP BY day
         ORDER BY day ASC
     """, (f"-{days - 1} days",))
@@ -725,10 +846,12 @@ def get_alert_type_breakdown(days=30):
     """Get alert counts by type within the last N days, for the dashboard bar chart."""
     conn = get_connection()
     cursor = conn.cursor()
+    # alerts.timestamp is stored in LOCAL time, so the window boundary is local
+    # too ('now','localtime') for a correct day count.
     cursor.execute("""
         SELECT alert_type, COUNT(*) as cnt
         FROM alerts
-        WHERE timestamp >= date('now', ?)
+        WHERE timestamp >= date('now', 'localtime', ?)
         GROUP BY alert_type
     """, (f"-{days} days",))
     breakdown = {row["alert_type"]: row["cnt"] for row in cursor.fetchall()}
@@ -1066,7 +1189,13 @@ def get_geo_events(limit=100, category=None):
         """, (limit,))
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    out = []
+    for row in rows:
+        d = dict(row)
+        d["timestamp"] = utc_to_local_str(d.get("timestamp"))     # UTC -> local
+        d["event_label"] = event_label(d.get("event_type"))
+        out.append(d)
+    return out
 
 
 def get_geo_category_stats(category):
@@ -1410,6 +1539,8 @@ def get_audit(limit=200):
     conn = get_connection(); c = conn.cursor()
     c.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))
     rows = [dict(r) for r in c.fetchall()]; conn.close()
+    for d in rows:
+        d["timestamp"] = utc_to_local_str(d.get("timestamp"))     # UTC -> local
     return rows
 
 

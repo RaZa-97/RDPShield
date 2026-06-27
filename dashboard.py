@@ -92,6 +92,7 @@ import config
 import auth
 import settings
 import yara_scheduler
+import ml_model
 from daily_report import write_report, REPORT_DIR
 
 app = Flask(__name__)
@@ -1178,6 +1179,14 @@ def index():
     )
 
 
+@app.route("/ml")
+def ml_page():
+    """ML Threat Scoring page: model status + a live, sortable table of the
+    riskiest IPs by learned threat score. Renders fine before any model is
+    trained (the template shows a 'no model yet' state)."""
+    return render_template("ml.html", active="ml", info=ml_model.model_info())
+
+
 # =========================================================================
 # FULL-LIST PAGES (opened in a new tab from the "View all" buttons)
 # =========================================================================
@@ -1387,6 +1396,20 @@ def api_attack_map():
     return jsonify(get_attack_map_points(limit=500))
 
 
+@app.route("/api/threat_scores")
+def api_threat_scores():
+    """ML per-IP threat scores (riskiest first). Empty list if no model is
+    trained yet. Cached inside ml_model so the auto-refresh is cheap."""
+    return jsonify(ml_model.score_active_ips(limit=_req_limit(200)))
+
+
+@app.route("/api/ml_info")
+def api_ml_info():
+    """Model metadata (trained_at, sample counts, ROC-AUC, feature importance)
+    for the ML page header."""
+    return jsonify(ml_model.model_info())
+
+
 @app.route("/unblock/<ip_address>", methods=["POST"])
 @auth.admin_required
 def unblock(ip_address):
@@ -1466,15 +1489,15 @@ def _export_audit():
 
 EXPORT_VIEWS = {
     "alerts":           {"file": "rdpshield_alerts",          "fetch": _export_alerts,
-                         "cols": ["timestamp", "alert_type", "source_ip", "geo_country", "geo_city", "abuse_score", "description", "blocked", "sms_sent"]},
+                         "cols": ["timestamp", "alert_type", "type_label", "source_ip", "geo_country", "geo_city", "abuse_score", "description", "blocked", "sms_sent"]},
     "blocked":          {"file": "rdpshield_blocked_ips",      "fetch": _export_blocked,
-                         "cols": ["ip_address", "attempts", "country", "isp", "abuse_score", "reason", "blocked_at"]},
+                         "cols": ["ip_address", "attempts", "country", "isp", "abuse_score", "attack_method", "reason", "blocked_at"]},
     "events":           {"file": "rdpshield_failed_logins",    "fetch": _export_events,
-                         "cols": ["timestamp", "source_ip", "geo_country", "geo_isp", "abuse_score", "username", "domain", "sub_status"]},
+                         "cols": ["timestamp", "source_ip", "geo_country", "geo_isp", "abuse_score", "username", "domain", "sub_status", "event_label"]},
     "geo_events":       {"file": "rdpshield_geo_events",       "fetch": _export_geo,
-                         "cols": ["timestamp", "source_ip", "username", "country", "city", "isp", "abuse_score", "event_type", "action", "reason"]},
+                         "cols": ["timestamp", "source_ip", "username", "country", "city", "isp", "abuse_score", "event_type", "event_label", "action", "reason"]},
     "whitelist_events": {"file": "rdpshield_whitelist_events", "fetch": _export_whitelist,
-                         "cols": ["timestamp", "source_ip", "username", "country", "city", "isp", "abuse_score", "event_type", "action", "reason"]},
+                         "cols": ["timestamp", "source_ip", "username", "country", "city", "isp", "abuse_score", "event_type", "event_label", "action", "reason"]},
     "yara_scans":       {"file": "rdpshield_yara_scans",       "fetch": _export_yara,
                          "cols": ["id", "triggered_by", "started_at", "completed_at", "duration", "total_findings", "critical_findings", "max_severity", "error"]},
     "audit":            {"file": "rdpshield_audit_log",        "fetch": _export_audit,

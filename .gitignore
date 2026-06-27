@@ -31,3 +31,18 @@ Thumbs.db
 run_agent.bat
 run_dashboard.bat
 panic_unblock.bat
+
+# Dissertation evidence: keep the structure (README + .gitkeep) but DON'T
+# commit screenshots / generated tables / raw rows (real attacker IPs, blurred
+# secrets). To deliberately include one evidence file:  git add -f <path>
+evidence/screenshots/**/*.png
+evidence/screenshots/**/*.jpg
+evidence/screenshots/**/*.jpeg
+evidence/data/*/
+evidence/logs/*
+!evidence/**/.gitkeep
+!evidence/README.md
+
+# Dissertation drafts / Office temp files / DB backups — not part of the tool
+*.bak
+~$*

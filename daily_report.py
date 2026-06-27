@@ -45,7 +45,7 @@ def build_report(day):
                COUNT(DISTINCT username)       AS unique_usernames,
                GROUP_CONCAT(DISTINCT username) AS usernames
         FROM failed_logins
-        WHERE substr(timestamp, 1, 10) = ?
+        WHERE substr(datetime(timestamp, 'localtime'), 1, 10) = ?
         GROUP BY source_ip
     """, (day,))
 
@@ -57,7 +57,7 @@ def build_report(day):
 
     blocks = _rows(cur, """
         SELECT * FROM blocked_ips
-        WHERE substr(blocked_at, 1, 10) = ?
+        WHERE substr(datetime(blocked_at, 'localtime'), 1, 10) = ?
     """, (day,))
 
     scans = _rows(cur, """

@@ -64,7 +64,7 @@ function buildAlerts(rows) {
         const loc = esc(a.geo_city || '') + (a.geo_country ? ', ' + esc(a.geo_country) : '');
         h += '<tr class="alert-row-' + esc(a.alert_type) + '">'
             + '<td>' + esc((a.timestamp || '').slice(0, 19)) + '</td>'
-            + '<td><span class="badge badge-' + esc(a.alert_type) + '">' + esc(a.alert_type) + '</span></td>'
+            + '<td><span class="badge badge-' + esc(a.alert_type) + '">' + esc(a.type_label || a.alert_type) + '</span></td>'
             + '<td class="ip">' + esc(a.source_ip) + '</td>'
             + '<td><strong>' + (a.attempts != null ? a.attempts : 0) + '</strong></td>'
             + '<td>' + loc + '</td>'
@@ -81,7 +81,7 @@ function buildAlerts(rows) {
 function buildBlocked(rows) {
     if (!rows.length) return '<p class="empty">No IPs currently blocked.</p>';
     const admin = canAdmin();
-    let h = '<table><thead><tr><th>IP Address</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>VirusTotal</th><th>Reason</th><th>Blocked At</th>'
+    let h = '<table><thead><tr><th>IP Address</th><th>Attempts</th><th>Location</th><th>ISP</th><th>Abuse Score</th><th>VirusTotal</th><th>Attack Method</th><th>Reason</th><th>Blocked At</th>'
         + (admin ? '<th>Action</th>' : '') + '</tr></thead><tbody>';
     for (const ip of rows) {
         const action = admin
@@ -97,6 +97,7 @@ function buildBlocked(rows) {
             + '<td>' + esc(ip.isp || '—') + '</td>'
             + '<td>' + abuseCell(ip.abuse_score) + '</td>'
             + '<td class="vt-cell">' + vtCellHtml(ip.ip_address) + '</td>'
+            + '<td><span class="badge badge-' + esc(ip.alert_type || 'manual_block') + '">' + esc(ip.attack_method || '—') + '</span></td>'
             + '<td>' + esc(ip.reason || '') + '</td>'
             + '<td>' + esc(ip.blocked_at || '') + '</td>'
             + action + '</tr>';
@@ -155,7 +156,7 @@ function buildGeoEvents(rows) {
             + '<td>' + esc(e.city || '') + '</td>'
             + '<td>' + esc(e.isp || '') + '</td>'
             + '<td>' + abuseCell(e.abuse_score) + '</td>'
-            + '<td>' + esc(e.event_type || '') + '</td>'
+            + '<td>' + esc(e.event_label || e.event_type || '') + '</td>'
             + '<td>' + (blocked ? '<span class="badge badge-geo-blocked">BLOCKED</span>'
                               : '<span class="badge badge-geo-allowed">ALLOWED</span>') + '</td>'
             + '<td class="description">' + esc(e.reason || '') + '</td>'
@@ -164,22 +165,56 @@ function buildGeoEvents(rows) {
     return h + '</tbody></table>';
 }
 
-// YARA scan history (read-only on the list page; the dashboard renders its own
-// click-to-load-findings version).
+// YARA scan history. Each row is click-to-expand: it reveals that scan's
+// findings (the actual scan result) inline, so the full paginated history page
+// is just as drillable as the YARA dashboard panel. A clean scan says so.
 function buildYaraHistory(rows) {
     if (!rows.length) return '<p class="empty">No scans yet.</p>';
     const sev = s => { s = s || 'none'; return '<span class="badge b-' + s + '">' + (s === 'none' ? '—' : s) + '</span>'; };
     let h = '<table><thead><tr><th>ID</th><th>Time</th><th>Trigger</th><th>Findings</th><th>Critical</th><th>Worst</th><th>Duration</th></tr></thead><tbody>';
     for (const r of rows) {
-        h += '<tr><td class="mono">#' + r.id + '</td>'
+        h += '<tr class="scan-row" style="cursor:pointer;" title="Click to view this scan\'s result"'
+            + ' onclick="toggleScanFindings(' + r.id + ')">'
+            + '<td class="mono">#' + r.id + '</td>'
             + '<td>' + esc(r.completed_at || r.started_at || '') + '</td>'
             + '<td class="mono">' + esc(r.triggered_by || '') + '</td>'
             + '<td>' + (r.total_findings != null ? r.total_findings : 0) + '</td>'
             + '<td>' + (r.critical_findings != null ? r.critical_findings : 0) + '</td>'
             + '<td>' + sev(r.max_severity) + '</td>'
-            + '<td class="muted">' + (r.duration != null ? r.duration + 's' : '—') + '</td></tr>';
+            + '<td class="muted">' + (r.duration != null ? r.duration + 's' : '—') + '</td></tr>'
+            + '<tr id="scan-findings-' + r.id + '" class="scan-findings" style="display:none;">'
+            + '<td colspan="7"><span class="muted">Loading…</span></td></tr>';
     }
     return h + '</tbody></table>';
+}
+
+// Expand/collapse a scan row to show its findings (fetched on demand).
+async function toggleScanFindings(id) {
+    const detail = document.getElementById('scan-findings-' + id);
+    if (!detail) return;
+    if (detail.style.display !== 'none') { detail.style.display = 'none'; return; }
+    detail.style.display = '';
+    const cell = detail.firstElementChild;
+    cell.innerHTML = '<span class="muted">Loading…</span>';
+    try {
+        const r = await fetch('/yara/findings/' + id);
+        const d = await r.json();
+        const f = d.findings || [];
+        if (!f.length) { cell.innerHTML = '<span class="muted">No findings — clean scan.</span>'; return; }
+        let t = '<table class="sub-table"><thead><tr><th>Severity</th><th>Rule</th><th>Type</th>'
+              + '<th>Location</th><th>SHA-256</th><th>Status</th></tr></thead><tbody>';
+        for (const x of f) {
+            const sevb = '<span class="badge b-' + esc(x.severity || 'none') + '">' + esc(x.severity || '—') + '</span>';
+            const sha = x.sha256 ? esc(String(x.sha256).slice(0, 16)) + '…' : '—';
+            t += '<tr><td>' + sevb + '</td>'
+               + '<td class="mono">' + esc(x.rule_name || '') + '</td>'
+               + '<td>' + esc(x.match_type || '') + '</td>'
+               + '<td class="mono" title="' + esc(x.location || '') + '">' + esc(x.location || '') + '</td>'
+               + '<td class="mono">' + sha + '</td>'
+               + '<td>' + esc(x.status || 'active') + '</td></tr>';
+        }
+        cell.innerHTML = t + '</tbody></table>';
+    } catch (e) { cell.innerHTML = '<span class="muted">Failed to load findings.</span>'; }
 }
 
 // Admin audit log (read-only).

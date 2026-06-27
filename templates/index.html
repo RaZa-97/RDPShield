@@ -143,7 +143,7 @@
                     {% for alert in alerts %}
                     <tr class="alert-row-{{ alert.alert_type }}">
                         <td>{{ alert.timestamp[:19] }}</td>
-                        <td><span class="badge badge-{{ alert.alert_type }}">{{ alert.alert_type }}</span></td>
+                        <td><span class="badge badge-{{ alert.alert_type }}">{{ alert.type_label or alert.alert_type }}</span></td>
                         <td class="ip">{{ alert.source_ip }}</td>
                         <td><strong>{{ alert.attempts }}</strong></td>
                         <td>{{ alert.geo_city }}{% if alert.geo_country %}, {{ alert.geo_country }}{% endif %}</td>
@@ -201,6 +201,7 @@
                         <th>ISP</th>
                         <th>Abuse Score</th>
                         <th>VirusTotal</th>
+                        <th>Attack Method</th>
                         <th>Reason</th>
                         <th>Blocked At</th>
                         {% if is_admin %}<th>Action</th>{% endif %}
@@ -220,6 +221,7 @@
                             {% else %}<span class="score-low">{{ ip.abuse_score }}%</span>{% endif %}
                         </td>
                         <td class="vt-cell"><button class="btn-sm" onclick="vtIp('{{ ip.ip_address }}', this)">VT</button></td>
+                        <td><span class="badge badge-{{ ip.alert_type or 'manual_block' }}">{{ ip.attack_method }}</span></td>
                         <td>{{ ip.reason }}</td>
                         <td>{{ ip.blocked_at }}</td>
                         {% if is_admin %}

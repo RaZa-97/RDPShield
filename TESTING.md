@@ -1,7 +1,7 @@
 # RDPShield — Attack Test Plan & System Validation
 
 > Authorized testing only: run against your own EC2 instance from your own
-> BlackArch VM. Target in examples: `16.170.232.91:3389`.
+> Kali Linux VM. Target in examples: `16.170.232.91:3389`.
 
 This plan drives every detection path and every response component, and gives a
 checklist to confirm the full system works end-to-end.
@@ -11,13 +11,17 @@ checklist to confirm the full system works end-to-end.
 ## 0. Test Setup
 
 ### Network isolation (avoid locking yourself out)
-- **Attacker** = BlackArch VM on the **mobile hotspot** (its public IP gets blocked).
+- **Attacker** = Kali VM on **ProtonVPN** (the VPN exit IP gets blocked, not your
+  real IP). A mobile hotspot works too — either way the attacker just needs a
+  public IP different from your admin IP.
 - **Observer/Admin** = a machine on your **home wifi**, RDP'd into the EC2 box,
   watching `http://localhost:5000` *inside* the RDP session.
 - Because the observer is on a different public IP, blocking the attacker never
   kills your dashboard/RDP access.
+- Bonus: pick the ProtonVPN exit **country** to drive real `geo_block` events
+  (T5) and a wider country spread for Table 7.
 
-### Confirm the basics (on BlackArch)
+### Confirm the basics (on Kali)
 ```bash
 curl ifconfig.me                 # note this as ATTACKER_IP
 nc -zv 16.170.232.91 3389        # must say succeeded/open
@@ -32,7 +36,7 @@ the server until you unblock. After each test:
 1. On the dashboard → **Blocked IPs** → **Unblock** the ATTACKER_IP, **or**
 2. Note that the hotspot may hand you a new IP (CGNAT) — then it's a fresh attacker.
 
-### Wordlists (on BlackArch — all fake, nothing is actually compromised)
+### Wordlists (on Kali — all fake, nothing is actually compromised)
 ```bash
 printf 'Winter2024\nPassword1\nadmin123\nLetmein1\nQwerty123\nSummer2024\nWelcome1\nP@ssw0rd\n' > /tmp/pw.txt
 printf 'administrator\nadmin\nuser\nguest\ntest\noperator\nsql\nbackup\n' > /tmp/users.txt
@@ -100,7 +104,7 @@ themselves are still caught.
 
 1. Dashboard → **Geolocation** → add your **home-wifi public IP** to Allowed IPs.
 2. Switch mode to **whitelist-only** (`private_and_allowed`) and Apply (confirm modal).
-3. From the BlackArch VM (hotspot IP — NOT whitelisted), attempt any login:
+3. From the Kali VM (ProtonVPN/hotspot IP — NOT whitelisted), attempt any login:
    ```bash
    hydra -t 1 -l administrator -p 'x' rdp://16.170.232.91
    ```

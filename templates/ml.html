@@ -1,0 +1,192 @@
+{% from '_icons.html' import icon %}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% include '_pwa_head.html' %}
+    <title>RDPShield — Threat Scoring</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Self-contained styling for the ML page (no edits to style.css). */
+        .ml-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .ml-grid { grid-template-columns: 1fr; } }
+        .ml-meta { display: flex; flex-wrap: wrap; gap: 22px; }
+        .ml-meta .k { color: var(--muted); font-size: 12px; text-transform: uppercase;
+                      letter-spacing: .04em; }
+        .ml-meta .v { font-size: 20px; font-weight: 700; }
+        .ml-imp-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+        .ml-imp-name { width: 150px; font-size: 13px; color: var(--text); }
+        .ml-imp-track { flex: 1; height: 9px; background: var(--border); border-radius: 6px; overflow: hidden; }
+        .ml-imp-fill { height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-dark)); }
+        .ml-imp-val { width: 48px; text-align: right; font-variant-numeric: tabular-nums;
+                      color: var(--muted); font-size: 12px; }
+        .score-pill { display: inline-block; min-width: 46px; text-align: center; padding: 3px 8px;
+                      border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; }
+        .band-critical { background: var(--critical); }
+        .band-high     { background: var(--high); }
+        .band-medium   { background: var(--purple); }
+        .band-low      { background: var(--ok); }
+        .ml-untrained { padding: 28px; text-align: center; color: var(--muted); }
+        .ml-untrained code { color: var(--text); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% include '_topbar.html' %}
+
+        <header>
+            <div>
+                <h1>{{ icon('scan') }} ML Threat Scoring</h1>
+                <p class="subtitle">Per-IP risk score from a trained Random Forest &middot; augments the rule engine</p>
+            </div>
+        </header>
+
+        <!-- Model status -->
+        <div class="section" id="mlStatus">
+            <p class="empty">Loading model status…</p>
+        </div>
+
+        <div class="ml-grid">
+            <!-- Feature importance -->
+            <div class="section">
+                <h2>{{ icon('audit') }} What drives the score</h2>
+                <p class="subtitle">Feature importance from the trained model</p>
+                <div id="mlImportance"><p class="empty">—</p></div>
+            </div>
+
+            <!-- Quick legend -->
+            <div class="section">
+                <h2>{{ icon('lock') }} How to read it</h2>
+                <p style="color:var(--muted);line-height:1.6;">
+                    Each IP is scored <strong>0–100</strong> by a model trained on this
+                    server's own attack history. The score estimates how closely an IP's
+                    behaviour + reputation matches IPs the rule engine has flagged.
+                </p>
+                <p style="margin-top:10px;">
+                    <span class="score-pill band-critical">80+</span> critical &nbsp;
+                    <span class="score-pill band-high">55+</span> high &nbsp;
+                    <span class="score-pill band-medium">30+</span> medium &nbsp;
+                    <span class="score-pill band-low">&lt;30</span> low
+                </p>
+                <p style="color:var(--muted);margin-top:10px;font-size:13px;">
+                    A <em>high score on an IP the rules never blocked</em> is the interesting
+                    case — a low-and-slow attacker worth a manual look.
+                </p>
+            </div>
+        </div>
+
+        <!-- Riskiest IPs -->
+        <div class="section">
+            <div class="list-toolbar">
+                <h2 style="margin:0;">{{ icon('ban') }} Riskiest IPs</h2>
+                <span class="list-info" id="mlCount"></span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table" id="mlTable">
+                    <thead>
+                        <tr>
+                            <th>Threat</th><th>IP</th><th>Failed</th><th>Uniq users</th>
+                            <th>User ratio</th><th>Max burst/60s</th><th>Days</th>
+                            <th>Night %</th><th>Abuse</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mlBody">
+                        <tr><td colspan="9" class="empty">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <footer>
+            <p>RDPShield | ML Threat Scoring</p>
+        </footer>
+    </div>
+
+    <script>
+    (function () {
+        const esc = t => (t == null ? '' : String(t)).replace(/[&<>"]/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+        function renderStatus(info) {
+            const el = document.getElementById('mlStatus');
+            if (!info || !info.available) {
+                el.innerHTML =
+                    '<div class="ml-untrained">'
+                    + '<h2>No model trained yet</h2>'
+                    + '<p>Train one offline on a machine with scikit-learn, then commit the model:</p>'
+                    + '<p><code>pip install scikit-learn</code> &nbsp;then&nbsp; '
+                    + '<code>python train_model.py</code> &rarr; commit <code>ml_model.json</code> &rarr; '
+                    + '<code>git pull</code> on the server.</p>'
+                    + '</div>';
+                document.getElementById('mlImportance').innerHTML = '<p class="empty">—</p>';
+                return;
+            }
+            const auc = (info.roc_auc == null) ? 'n/a' : Number(info.roc_auc).toFixed(3);
+            const when = (info.trained_at || '').replace('T', ' ');
+            el.innerHTML =
+                '<h2>Model status</h2>'
+                + '<div class="ml-meta">'
+                + metric('Trained', when)
+                + metric('Training IPs', info.n_samples)
+                + metric('Malicious / benign', (info.n_malicious + ' / ' + info.n_benign))
+                + metric('Trees', info.n_trees)
+                + metric('ROC-AUC', auc)
+                + '</div>';
+            renderImportance(info.feature_importance || {});
+        }
+
+        function metric(k, v) {
+            return '<div><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>';
+        }
+
+        function renderImportance(imp) {
+            const rows = Object.entries(imp).sort((a, b) => b[1] - a[1]);
+            const el = document.getElementById('mlImportance');
+            if (!rows.length) { el.innerHTML = '<p class="empty">—</p>'; return; }
+            const max = rows[0][1] || 1;
+            el.innerHTML = rows.map(([name, val]) =>
+                '<div class="ml-imp-row">'
+                + '<span class="ml-imp-name">' + esc(name) + '</span>'
+                + '<span class="ml-imp-track"><span class="ml-imp-fill" style="width:'
+                + (100 * val / max).toFixed(1) + '%"></span></span>'
+                + '<span class="ml-imp-val">' + (val * 100).toFixed(1) + '%</span>'
+                + '</div>').join('');
+        }
+
+        function renderScores(rows) {
+            const body = document.getElementById('mlBody');
+            document.getElementById('mlCount').textContent =
+                rows.length ? (rows.length + ' IPs scored') : '';
+            if (!rows.length) {
+                body.innerHTML = '<tr><td colspan="9" class="empty">'
+                    + 'No scores yet — train a model (see above).</td></tr>';
+                return;
+            }
+            body.innerHTML = rows.map(r =>
+                '<tr>'
+                + '<td><span class="score-pill band-' + esc(r.band) + '">' + r.score + '</span></td>'
+                + '<td>' + esc(r.ip) + '</td>'
+                + '<td>' + (r.failed_login_count || 0) + '</td>'
+                + '<td>' + (r.unique_usernames || 0) + '</td>'
+                + '<td>' + Number(r.username_ratio || 0).toFixed(2) + '</td>'
+                + '<td>' + (r.max_burst_60s || 0) + '</td>'
+                + '<td>' + (r.distinct_days || 0) + '</td>'
+                + '<td>' + Math.round(100 * (r.night_ratio || 0)) + '%</td>'
+                + '<td>' + (r.abuse_score || 0) + '</td>'
+                + '</tr>').join('');
+        }
+
+        function load() {
+            fetch('/api/ml_info').then(r => r.json()).then(renderStatus).catch(() => {});
+            fetch('/api/threat_scores?limit=200').then(r => r.json())
+                .then(renderScores).catch(() => {});
+        }
+
+        load();
+        setInterval(load, 30000);   // refresh every 30s (scores are cached server-side)
+    })();
+    </script>
+</body>
+</html>
