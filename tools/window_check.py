@@ -9,9 +9,9 @@ logins in 60s (i.e. whether brute force *should* fire, vs only persistent).
 
     python tools/window_check.py 63.141.48.191
 
-If brute shows < 5 but persistent shows >= 5, your attempts arrived too slowly
-to pack 5 into 60 seconds (common over a VPN) - use a denser burst
-(hydra -t 4) rather than paced sequential attempts.
+If brute is under its threshold but persistent is over its, your attempts
+arrived too slowly to pack 5 into 60 seconds (common over a VPN) - use a denser
+burst (hydra -t 4) rather than paced sequential attempts.
 """
 import sys
 import os

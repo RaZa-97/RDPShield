@@ -83,16 +83,20 @@ hydra -t 1 -V -L /tmp/users.txt -p 'Password123' rdp://16.170.232.91
 ---
 
 ### Test 3 — Slow & Low / Persistent  → `persistent_attack`
-**Goal:** accumulate 5 failures while staying under 5-in-60s, so only the
-persistent catch-all trips.
+**Goal:** accumulate **15** failures (the `PERSISTENT_MAX_FAILURES` threshold)
+while pacing **>60s apart** so you stay under brute force (5/60s) AND slow-and-low
+(10/600s) — only the cumulative persistent detector should trip.
 ```bash
-for p in Winter2024 Password1 admin123 Letmein1 Qwerty123; do
-  hydra -t 1 -l administrator -p "$p" rdp://16.170.232.91
-  sleep 30
+# Easiest: the paced generator (17 attempts @75s, ~21 min)
+python3 slow_attack_test.py -t 16.170.232.91 -u administrator --mode persistent
+# Or by hand: 17 single attempts, 75s apart
+for i in $(seq 1 17); do
+  hydra -t 1 -l administrator -p "wrongpass$i" rdp://16.170.232.91
+  sleep 75
 done
 ```
-**Verify:** alert badge **PERSISTENT**; this proves low-and-slow bots that pace
-themselves are still caught.
+**Verify:** alert badge **PERSISTENT ATTACK**; this proves low-and-slow bots that
+pace themselves under the rate detectors are still caught.
 **Reset:** unblock ATTACKER_IP.
 
 ---
@@ -158,10 +162,14 @@ After each blocking test, confirm on the dashboard / phone:
 ---
 
 ## 5. Notes & Cautions
-- **SMS volume:** with the threshold at 5, every distinct attacker that reaches 5
-  failures triggers an SMS. On a public honeypot this can be many texts and may
-  drain Notify.lk demo credits. Raise `PERSISTENT_MAX_FAILURES` if needed.
-- **Slow_attack shadowed:** with persistent at 5, the 10/600s `slow_attack`
-  detector rarely fires (persistent catches first). This is by design.
+- **SMS volume:** every distinct attacker that reaches `PERSISTENT_MAX_FAILURES`
+  (now 15/24h) triggers an SMS. Raising it from 5 → 15 also cuts SMS noise on a
+  public honeypot (fewer one-off scanners cross the bar); lower it again if you
+  want more sensitivity.
+- **Persistent no longer shadows the others:** at the old value of 5, almost
+  every attacker hit persistent first and the brute/slow/spray detectors rarely
+  got to claim their own attacks. At 15/24h, persistent only fires for genuinely
+  determined low-and-slow attackers, so a 10-in-600s paced attack now correctly
+  registers as `slow_attack` and a 5-in-60s burst as `brute_force`.
 - **Recon (nmap) is not detected:** RDPShield watches failed logons (Event 4625),
   not port scans. `nmap -p 3389 16.170.232.91` won't raise an alert.

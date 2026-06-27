@@ -38,7 +38,10 @@ def main():
     line("Brute force", f"{config.BRUTE_FORCE_MAX_FAILURES} fails / {config.BRUTE_FORCE_TIME_WINDOW}s")
     line("Slow attack", f"{config.SLOW_ATTACK_MAX_FAILURES} fails / {config.SLOW_ATTACK_TIME_WINDOW}s")
     line("Password spray", f"{config.SPRAY_MAX_USERNAMES} users / {config.SPRAY_TIME_WINDOW}s")
-    p_ok = getattr(config, "PERSISTENT_MAX_FAILURES", None) == 5
+    # Verify the setting exists and is sane (not a specific value — the
+    # threshold is tunable; 15 is the recommended default, was 5).
+    _pmf = getattr(config, "PERSISTENT_MAX_FAILURES", None)
+    p_ok = isinstance(_pmf, int) and _pmf > 0
     line("Persistent",
          f"{getattr(config,'PERSISTENT_MAX_FAILURES','MISSING')} fails / "
          f"{getattr(config,'PERSISTENT_TIME_WINDOW','MISSING')}s",

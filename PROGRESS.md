@@ -35,7 +35,7 @@ On first start with no users, an **admin / admin** account is auto-seeded (print
 ### config.py is GITIGNORED — new settings must be hand-added on the server
 After a pull that introduces a new config setting, add it to the server's `config.py` by hand (the code imports it; missing → dashboard won't start with `ImportError`). Settings currently required beyond the original file:
 ```python
-PERSISTENT_MAX_FAILURES = 5
+PERSISTENT_MAX_FAILURES = 15             # was 5; raised so persistent means genuine persistence, not a catch-all
 PERSISTENT_TIME_WINDOW  = 86400          # 24h, any pacing
 SMS_ALERT_TYPES = ["brute_force","password_spray","slow_attack","persistent_attack","geo_block","whitelist_block","yara_critical"]
 YARA_QUARANTINE_DIR = r"C:\RDPShield_Quarantine"
@@ -106,7 +106,7 @@ Closed a set of vulnerabilities found in a self-review (see `SECURITY.md` for th
 - Verified with throwaway-DB test suites (firewall/secret/redirect/RNG 22/22; CSRF/session/password/lockout 24/24; concurrent-lock + SMS unlock 14/14). Commits: `141d3e4` (hardening), `34598f9` (lockout/unlock), `f5f927b` (docs).
 
 ### Feature set as of 2026-06-23 (v3.5)
-- **Detection:** brute force (5/60s), slow-and-low (10/600s, shadowed by persistent), password spray (4 users/300s), **persistent/low-and-slow (5 failures/24h any pacing)**.
+- **Detection:** brute force (5/60s), slow-and-low (10/600s), password spray (4 users/300s), **persistent/low-and-slow (15 failures/24h any pacing)**.
 - **Geo access control (Advanced Security page, 2 sections):** Geolocation Settings (allow-anywhere / country-list → `geo_block`) and Whitelist Settings (IP-whitelist-only → `whitelist_block`). Each has its own mode control, lockout guard, allow-list, stats, Allowed-vs-Blocked chart, and category-tagged event log with **Unblock** buttons.
 - **Response (strict order Block → YARA disk scan → SMS):** firewall block; post-block YARA disk scan; one rich SMS sent from the scan-completion handler containing IP, location (city/country), reason, failed-attempt count, "Valid login from blocked zone: YES" flag, YARA result, timestamp. Manual blocks run YARA + log an alert but send **no SMS** (auto-blocks only).
 - **Enrichment:** ip-api geo (+ISP), AbuseIPDB score, **VirusTotal** (IP reputation on dashboard rows; file-hash lookup on YARA findings).

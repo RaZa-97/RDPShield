@@ -21,7 +21,7 @@ Examples
   # Slow-and-low: 12 attempts, one every 60s (trips the 10-in-600s detector)
   python3 slow_attack_test.py -t 16.170.232.91 -u administrator --mode slow
 
-  # Persistent: 14 attempts, one every 95s (trips the cumulative detector)
+  # Persistent: 17 attempts, one every 75s (trips the 15/24h cumulative detector)
   python3 slow_attack_test.py -t 16.170.232.91 -u administrator --mode persistent
 
   # Password spray: one password across many usernames
@@ -46,7 +46,7 @@ MODES = {
     # mode      interval(s)  count   description
     "fast":       (2,   8, "Fast brute force: 8 attempts @2s → trips the 5-in-60s detector (T1)"),
     "slow":       (60,  12, "Slow-and-low: 12 attempts @60s (~11 min) → trips 10/600s detector (T2)"),
-    "persistent": (95,  14, "Persistent: 14 attempts @95s (~22 min) → trips cumulative detector (T4)"),
+    "persistent": (75,  17, "Persistent: 17 attempts @75s (~21 min) → trips 15/24h cumulative detector (T4); paced to evade brute (5/60s) and slow (10/600s)"),
     "spray":      (20,  10, "Password spray: one password across 10 usernames @20s (T3)"),
 }
 

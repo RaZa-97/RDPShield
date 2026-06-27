@@ -27,8 +27,12 @@ SPRAY_TIME_WINDOW = 300  # seconds (5 minutes)
 # --- Persistent / Low-and-Slow Attack ---
 # Catches attackers that pace attempts to stay under the rate thresholds.
 # Flags an IP that accumulates X total failures within a wide window.
-# Example: 5 failed logins from one IP within 24 hours, regardless of pacing.
-PERSISTENT_MAX_FAILURES = 5
+# Example: 15 failed logins from one IP within 24 hours, regardless of pacing.
+# Set to 15 (not 5) so "persistent" means GENUINE persistence: at 5/24h this
+# catch-all fired on almost every scanner and shadowed the brute/slow/spray
+# detectors (everything got labelled persistent_attack). 15-20 is a defensible
+# range; raise toward 20 if the honeypot is very noisy.
+PERSISTENT_MAX_FAILURES = 15
 PERSISTENT_TIME_WINDOW = 86400  # seconds (24 hours)
 
 # =============================================================================
