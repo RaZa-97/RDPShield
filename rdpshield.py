@@ -514,8 +514,9 @@ def process_failed_login(event):
     if is_slow:
         handle_detection(
             "slow_attack", ip,
-            f"{count} failed logins in {SLOW_ATTACK_TIME_WINDOW}s "
-            f"(slow-and-low pattern, last user: {username})"
+            f"{count} failed logins in {SLOW_ATTACK_TIME_WINDOW // 60} min "
+            f"(slow-and-low: sustained burst paced under brute force, "
+            f"last user: {username})"
         )
         return
 
@@ -532,8 +533,10 @@ def process_failed_login(event):
     if is_persistent:
         handle_detection(
             "persistent_attack", ip,
-            f"{total} failed logins from this IP over time "
-            f"(low-and-slow pattern, last user: {username})"
+            f"{total} cumulative failed logins over "
+            f"{PERSISTENT_TIME_WINDOW // 3600}h "
+            f"(persistent: sparse attempts paced under every rate window, "
+            f"last user: {username})"
         )
         return
 
