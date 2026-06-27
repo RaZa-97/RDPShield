@@ -56,6 +56,7 @@ from database import (
     get_failed_logins_for_ip,
     get_unique_usernames_for_ip,
     count_failed_attempts,
+    count_failed_logins,
     is_ip_blocked,
     # Geo-blocking functions
     get_geo_mode,
@@ -64,14 +65,31 @@ from database import (
     is_country_allowed,
     is_ip_allowed,
     log_geo_event,
+    # Reputation cache (reputation-alert detector)
+    get_cached_abuse,
+    cache_abuse,
+    mark_abuse_alerted,
 )
 from firewall import block_ip
 import yara_scheduler
+import virustotal
 from alerts import (
     process_alert_enrichment,
     send_block_sms,
+    send_sms_alert,
+    check_abuse_reputation,
     lookup_geolocation,
 )
+
+# Reputation / threat-intel alert settings (optional — default off if absent so
+# an older config.py without these keys still starts).
+import config as _cfg
+REPUTATION_ALERT_ENABLED = getattr(_cfg, "REPUTATION_ALERT_ENABLED", False)
+REPUTATION_MIN_ATTEMPTS  = getattr(_cfg, "REPUTATION_MIN_ATTEMPTS", 3)
+REPUTATION_ALERT_SCORE   = getattr(_cfg, "REPUTATION_ALERT_SCORE", 50)
+REPUTATION_BLOCK_SCORE   = getattr(_cfg, "REPUTATION_BLOCK_SCORE", 85)
+REPUTATION_USE_VT        = getattr(_cfg, "REPUTATION_USE_VT", True)
+REPUTATION_CACHE_HOURS   = getattr(_cfg, "REPUTATION_CACHE_HOURS", 24)
 
 
 # Track which IPs have already triggered alerts (to avoid duplicates)
@@ -519,6 +537,23 @@ def process_failed_login(event):
         )
         return
 
+    # STEP 4: Reputation / threat-intel — catches low-volume known-bad IPs that
+    # slipped under every count-based rule above (e.g. 6 failures across a day).
+    rep = check_ip_reputation(ip)
+    if rep:
+        vt_txt = (f", VT {rep['vt_malicious']} malicious"
+                  if rep["vt_malicious"] and rep["vt_malicious"] > 0 else "")
+        tor_txt = ", Tor exit node" if rep["is_tor"] else ""
+        detail = (f"Known-malicious IP: AbuseIPDB {rep['abuse_score']}% "
+                  f"({rep['reports']} reports){vt_txt}{tor_txt}; "
+                  f"{count_failed_logins(ip)} failed logins (last user: {username})")
+        if rep["action"] == "block":
+            handle_detection("reputation_alert", ip, detail)
+        else:                                # alert-only: SMS the SOC, no block
+            mark_abuse_alerted(ip)
+            handle_detection("reputation_alert", ip, detail, do_block=False)
+        return
+
 
 def process_successful_login(event):
     """
@@ -630,6 +665,66 @@ def detect_persistent_attacker(source_ip):
     return False, count
 
 
+def check_ip_reputation(source_ip):
+    """
+    DETECTION ALGORITHM 5: Reputation / Threat-Intel.
+
+    Catches LOW-VOLUME malicious IPs that never trip the count-based detectors
+    (e.g. a handful of failed logins spread across a day) by checking external
+    reputation. Runs only after a small attempt floor, uses a cached AbuseIPDB
+    result (and VirusTotal for already-flagged IPs) to respect API quota, and
+    returns a verdict dict or None:
+        {"action": "block"|"alert", "abuse_score", "reports",
+         "vt_malicious", "is_tor"}
+
+    "alert" is returned at most once per IP per cache window (dedup via the
+    abuse_cache 'alerted' flag) so a slow trickle doesn't spam the SOC. Blocks
+    don't need dedup — a blocked IP is dropped before re-processing.
+    """
+    if not REPUTATION_ALERT_ENABLED or is_private_ip(source_ip):
+        return None
+    if source_ip in WHITELIST_IPS:
+        return None
+    if count_failed_logins(source_ip) < REPUTATION_MIN_ATTEMPTS:
+        return None
+
+    cached = get_cached_abuse(source_ip, REPUTATION_CACHE_HOURS)
+    if cached is None:
+        abuse = check_abuse_reputation(source_ip) or {}
+        score = int(abuse.get("abuse_score", 0) or 0)
+        reports = int(abuse.get("total_reports", 0) or 0)
+        is_tor = bool(abuse.get("is_tor", False))
+        vt_mal = -1
+        # Spend a VirusTotal lookup only on IPs AbuseIPDB already flags.
+        if REPUTATION_USE_VT and score >= REPUTATION_ALERT_SCORE:
+            vt = virustotal.vt_lookup_ip(source_ip) or {}
+            if vt.get("found"):
+                vt_mal = int(vt.get("malicious", 0) or 0)
+        cache_abuse(source_ip, score, reports, is_tor, vt_mal)
+        cached = {"abuse_score": score, "total_reports": reports,
+                  "is_tor": 1 if is_tor else 0, "vt_malicious": vt_mal,
+                  "alerted": 0}
+
+    score = int(cached.get("abuse_score", 0) or 0)
+    vt_mal = int(cached.get("vt_malicious", -1))
+    reports = int(cached.get("total_reports", 0) or 0)
+    is_tor = bool(cached.get("is_tor", 0))
+
+    # Tier the response. Two independent sources agreeing (AbuseIPDB flagged AND
+    # VirusTotal malicious) escalates a medium-reputation IP straight to a block.
+    if score >= REPUTATION_BLOCK_SCORE or (score >= REPUTATION_ALERT_SCORE and vt_mal >= 1):
+        action = "block"
+    elif score >= REPUTATION_ALERT_SCORE:
+        if cached.get("alerted"):
+            return None                      # already texted the SOC this window
+        action = "alert"
+    else:
+        return None
+
+    return {"action": action, "abuse_score": score, "reports": reports,
+            "vt_malicious": vt_mal, "is_tor": is_tor}
+
+
 # =============================================================================
 # ALERT HANDLING
 # =============================================================================
@@ -646,7 +741,8 @@ def should_alert(source_ip, alert_type):
     return True
 
 
-def handle_detection(alert_type, source_ip, detail_info, extra=None):
+def handle_detection(alert_type, source_ip, detail_info, extra=None,
+                     do_block=True):
     """
     Central handler for all detection alerts (brute/spray/persistent and the
     geo_block / whitelist_block access-control blocks).
@@ -657,6 +753,10 @@ def handle_detection(alert_type, source_ip, detail_info, extra=None):
 
     `extra` may carry SMS context, e.g. {"success_outside": True} when the
     triggering event was a successful login from a blocked zone/whitelist.
+
+    `do_block=False` is the alert-ONLY mode (used by the medium-tier reputation
+    alert): enrich, SMS the SOC and log the alert, but do NOT block — a human
+    decides. No YARA scan in this mode (nothing was blocked).
     """
     extra = extra or {}
     if not should_alert(source_ip, alert_type):
@@ -665,8 +765,9 @@ def handle_detection(alert_type, source_ip, detail_info, extra=None):
     if source_ip in WHITELIST_IPS:
         return
 
+    verb = "detected" if do_block else "flagged (alert only)"
     print(f"\n{'='*60}")
-    print(f"[ALERT] {alert_type.upper()} detected from {source_ip}")
+    print(f"[ALERT] {alert_type.upper()} {verb} from {source_ip}")
     print(f"[ALERT] {detail_info}")
     print(f"{'='*60}")
 
@@ -676,6 +777,20 @@ def handle_detection(alert_type, source_ip, detail_info, extra=None):
     attempts = count_failed_attempts(source_ip)
     success_outside = bool(extra.get("success_outside"))
     event_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Alert-only tier: SMS the SOC and log, no block / no scan.
+    if not do_block:
+        geo_info = {"city": city, "country": country}
+        sms_sent = 1 if send_sms_alert(alert_type, source_ip, detail_info, geo_info) else 0
+        log_alert(
+            alert_type=alert_type, source_ip=source_ip, description=detail_info,
+            usernames=str(detail_info), failure_count=0,
+            geo_country=enrichment.get("geo_country", ""),
+            geo_city=enrichment.get("geo_city", ""),
+            abuse_score=enrichment.get("abuse_score", 0),
+            blocked=0, sms_sent=sms_sent,
+        )
+        return
 
     # STEP 1 - BLOCK
     blocked = block_ip(source_ip, reason=f"{alert_type}: {detail_info}")

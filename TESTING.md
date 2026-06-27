@@ -134,6 +134,27 @@ This proves the block is effective. Unblock afterwards.
 
 ---
 
+### Test 7 — Reputation / Threat-Intel alert  → `reputation_alert`
+**Goal:** prove a LOW-VOLUME attacker that trips no count rule is still caught
+on its AbuseIPDB/VirusTotal reputation, so the SOC is notified.
+The hard part is having a *reputable-bad* source IP. Options:
+- Attack from a **Tor exit / known-bad VPN exit** (often already AbuseIPDB-listed), OR
+- **Temporarily lower the bar** to test the path: set `REPUTATION_ALERT_SCORE = 1`
+  (and `REPUTATION_MIN_ATTEMPTS = 3`) in `config.py`, restart the agent, then make
+  **3–4 paced failed logins** (well under brute/slow) from a public IP that has any
+  AbuseIPDB reports. Put it back to 50 afterwards.
+```bash
+for i in 1 2 3 4; do hydra -t 1 -l administrator -p "x$i" rdp://16.170.232.91; sleep 30; done
+```
+**Verify:** a **REPUTATION ALERT** alert + SMS to the SOC; if the score is ≥85%
+(or ≥50% and VirusTotal flags it) the IP is also **blocked**, otherwise it's
+**alert-only** (no block — a human decides). Re-running won't re-text within the
+24h cache window (dedup).
+**Tip:** `python tools\window_check.py <ip>` shows the IP has <5/60s and <10/600s,
+proving the count detectors would have missed it.
+
+---
+
 ## 3. Per-Test Verification Checklist
 
 After each blocking test, confirm on the dashboard / phone:

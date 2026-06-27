@@ -60,6 +60,22 @@ IP_API_URL = "http://ip-api.com/json/{ip}"
 ABUSEIPDB_API_KEY = "YOUR_ABUSEIPDB_API_KEY_HERE"
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 
+# --- Reputation / Threat-Intel alert ----------------------------------------
+# Catches LOW-VOLUME malicious IPs that never trip the count-based detectors
+# (e.g. 6 failed logins spread across a day). Once an IP passes a small attempt
+# floor, RDPShield checks its AbuseIPDB reputation (cached to respect quota) and,
+# for flagged IPs, VirusTotal. Tiered response so the SOC isn't spammed and good
+# IPs aren't wrongly blocked:
+#   abuse >= REPUTATION_ALERT_SCORE          -> SMS the SOC (alert only)
+#   abuse >= REPUTATION_BLOCK_SCORE          -> auto-block + SMS
+#   abuse >= ALERT_SCORE *and* VT malicious  -> auto-block + SMS (two sources agree)
+REPUTATION_ALERT_ENABLED = True
+REPUTATION_MIN_ATTEMPTS  = 3      # failed logins before a reputation lookup runs
+REPUTATION_ALERT_SCORE   = 50     # AbuseIPDB confidence % -> alert the SOC
+REPUTATION_BLOCK_SCORE   = 85     # AbuseIPDB confidence % -> auto-block
+REPUTATION_USE_VT        = True   # also consult VirusTotal for already-flagged IPs
+REPUTATION_CACHE_HOURS   = 24     # cache a reputation result this long (quota + dedup)
+
 # =============================================================================
 # SMS ALERTS (Notify.lk) — register at https://app.notify.lk/register
 # =============================================================================
@@ -69,7 +85,7 @@ NOTIFY_API_KEY = "YOUR_API_KEY"
 NOTIFY_SENDER_ID = "NotifyDEMO"   # Use "NotifyDEMO" for testing
 ALERT_TO_NUMBER = "94XXXXXXXXX"   # Your phone number (format: 9471XXXXXXX)
 
-SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "persistent_attack", "geo_block", "whitelist_block", "yara_critical"]
+SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "persistent_attack", "geo_block", "whitelist_block", "yara_critical", "reputation_alert"]
 
 # =============================================================================
 # DASHBOARD SETTINGS

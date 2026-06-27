@@ -153,6 +153,7 @@ REASON_LABELS = {
     "geo_block": "Geo blocked",
     "whitelist_block": "Non-whitelisted IP",
     "manual_block": "Manual block",
+    "reputation_alert": "Known malicious IP (reputation)",
 }
 
 

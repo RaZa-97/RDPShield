@@ -466,6 +466,11 @@ code {
     color: var(--brand);
 }
 
+.badge-reputation_alert {
+    background: rgba(217, 119, 6, 0.12);
+    color: #d97706;
+}
+
 .badge-geo-blocked {
     background: rgba(220, 38, 38, 0.1);
     color: var(--critical);

@@ -89,6 +89,7 @@ ATTACK_LABELS = {
     "manual_block":      "Manual Block",
     "manual":            "Manual Block",
     "manual_memory":     "Manual (Memory)",
+    "reputation_alert":  "Reputation Alert",
 }
 
 EVENT_LABELS = {
@@ -299,7 +300,79 @@ def init_db():
     conn.close()
     create_yara_tables()
     create_users_table()
+    create_abuse_cache_table()
     print("[DB] Database initialized successfully.")
+
+
+# =============================================================================
+# ABUSE / REPUTATION CACHE (for the reputation-alert detector)
+# =============================================================================
+# Caches AbuseIPDB (+ optional VirusTotal) results per IP so the reputation
+# check can run on low-volume attackers without burning API quota, and so the
+# alert-only tier texts the SOC at most once per cache window per IP.
+
+def create_abuse_cache_table():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS abuse_cache (
+            ip_address    TEXT PRIMARY KEY,
+            abuse_score   INTEGER DEFAULT 0,
+            total_reports INTEGER DEFAULT 0,
+            is_tor        INTEGER DEFAULT 0,
+            vt_malicious  INTEGER DEFAULT -1,   -- -1 = VT not checked
+            alerted       INTEGER DEFAULT 0,    -- 1 = SOC already alerted this window
+            checked_at    TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.commit(); conn.close()
+
+
+def get_cached_abuse(ip_address, max_age_hours=24):
+    """Return the cached reputation dict for an IP, or None if missing/stale."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM abuse_cache WHERE ip_address = ?", (ip_address,))
+    row = c.fetchone(); conn.close()
+    if not row:
+        return None
+    try:
+        checked = datetime.strptime(row["checked_at"][:19].replace("T", " "),
+                                    "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+    # checked_at is UTC (CURRENT_TIMESTAMP); compare in naive UTC.
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    if now_utc - checked > timedelta(hours=max_age_hours):
+        return None
+    return dict(row)
+
+
+def cache_abuse(ip_address, abuse_score, total_reports=0, is_tor=False,
+                vt_malicious=-1):
+    """Upsert a fresh reputation result. Resets the cache window and the
+    'alerted' flag so a new window allows one fresh SOC alert."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        INSERT INTO abuse_cache
+            (ip_address, abuse_score, total_reports, is_tor, vt_malicious,
+             alerted, checked_at)
+        VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+        ON CONFLICT(ip_address) DO UPDATE SET
+            abuse_score=excluded.abuse_score,
+            total_reports=excluded.total_reports,
+            is_tor=excluded.is_tor,
+            vt_malicious=excluded.vt_malicious,
+            alerted=0,
+            checked_at=CURRENT_TIMESTAMP
+    """, (ip_address, int(abuse_score), int(total_reports),
+          1 if is_tor else 0, int(vt_malicious)))
+    conn.commit(); conn.close()
+
+
+def mark_abuse_alerted(ip_address):
+    """Record that the SOC has been alerted for this IP this cache window
+    (so the alert-only tier doesn't re-text on every subsequent failed login)."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE abuse_cache SET alerted = 1 WHERE ip_address = ?", (ip_address,))
+    conn.commit(); conn.close()
 
 # ============ YARA tables (v3.0) ============
 
