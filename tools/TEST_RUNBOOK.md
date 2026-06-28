@@ -61,17 +61,30 @@ that layering detectors catches paced attackers.
 > Note: the threshold is `PERSISTENT_MAX_FAILURES` (now 15, was 5). Confirm the
 > server `config.py` has 15 (it's gitignored — `git pull` won't change it).
 
-## T5 — Geo / whitelist block  *(access control, not behaviour)*
-1. On the dashboard → **Advanced Security**, set a restrictive mode:
-   - *Country list:* add only a country you are NOT connecting from, **or**
-   - *Whitelist only:* add a different IP (NOT your current one).
-   - (Add your admin IP first if needed so you don’t lock yourself out.)
-2. From the attacker box, attempt a single RDP connection:
+## T5a — Geo-block, country mode  *(access control, not behaviour)*
+1. Dashboard → **Advanced Security → Geolocation Settings** → **Country list**
+   mode; add only a country you are **NOT** connecting from. (Add your admin IP
+   to the allow-list first so you don't lock yourself out, then Apply + confirm.)
+2. From the attacker box (ProtonVPN exit in a non-listed country), attempt one
+   RDP connection:
    ```bash
    xfreerdp /v:$TARGET /u:$USER /p:whatever /cert:ignore +auth-only
    ```
-**Expect:** a `geo_block` or `whitelist_block` event and an immediate block.
-3. **Reset the mode back to allow-anywhere afterwards.**
+**Expect:** a **`geo_block`** event on the Geolocation log + an immediate block.
+3. **Reset to allow-anywhere** and unblock afterwards.
+
+## T5b — Whitelist-only block, IP mode  *(access control, not behaviour)*
+1. Dashboard → **Advanced Security → Whitelist Settings**: add your **admin IP**
+   to the allow-list, then **Enable whitelist-only mode** (confirm). Now only
+   listed IPs may connect — public or private.
+2. From the attacker box (an IP **not** on the allow-list), attempt one RDP
+   connection:
+   ```bash
+   xfreerdp /v:$TARGET /u:$USER /p:whatever /cert:ignore +auth-only
+   ```
+**Expect:** a **`whitelist_block`** event on the Whitelist log + an immediate
+block (a *distinct* alert type from geo_block).
+3. **Reset to allow-anywhere** and unblock afterwards.
 
 ## T6 — Legitimate traffic  *(FALSE-POSITIVE check — must NOT alert)*
 From a **whitelisted/allowed** machine, do a NORMAL RDP login: mistype the

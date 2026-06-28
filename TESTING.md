@@ -101,18 +101,32 @@ pace themselves under the rate detectors are still caught.
 
 ---
 
-### Test 4 — Geo-Block (advanced, optional)  → `geo_block`
-> ⚠️ This uses a lockout-capable mode. Add your admin path to the allow list
-> FIRST. If you get locked out: AWS Console → Security Group fix, or connect
-> from a different IP, then unblock.
+### Test 4a — Geo-Block, country mode (advanced, optional)  → `geo_block`
+> ⚠️ Lockout-capable mode. Add your admin IP to the allow list FIRST. If locked
+> out: AWS Console → Security Group fix, or connect from a different IP, then unblock.
 
-1. Dashboard → **Geolocation** → add your **home-wifi public IP** to Allowed IPs.
-2. Switch mode to **whitelist-only** (`private_and_allowed`) and Apply (confirm modal).
-3. From the Kali VM (ProtonVPN/hotspot IP — NOT whitelisted), attempt any login:
+1. Dashboard → **Advanced Security → Geolocation Settings** → **Country list** mode;
+   add only a country you are **NOT** connecting from. Apply (confirm modal).
+2. From the Kali VM (ProtonVPN exit in a non-listed country), attempt any login:
    ```bash
    hydra -t 1 -l administrator -p 'x' rdp://16.170.232.91
    ```
-**Verify:** alert badge **GEO BLOCK**; geo event logged on the Geolocation page.
+**Verify:** **GEO BLOCK** badge; event on the **Geolocation Event Log**.
+**Reset:** switch mode back to **allow_anywhere**, unblock ATTACKER_IP.
+
+### Test 4b — Whitelist-only, IP mode (advanced, optional)  → `whitelist_block`
+> ⚠️ Same lockout caution — whitelist your admin IP FIRST.
+
+1. Dashboard → **Advanced Security → Whitelist Settings** → add your **admin/home
+   public IP** to Allowed IPs.
+2. **Enable whitelist-only mode** (`private_and_allowed`) and Apply (confirm modal).
+   Now only listed IPs may connect — public or private.
+3. From the Kali VM (an IP **NOT** on the allow list), attempt any login:
+   ```bash
+   hydra -t 1 -l administrator -p 'x' rdp://16.170.232.91
+   ```
+**Verify:** **NON-WHITELISTED IP** badge (`whitelist_block` — a *distinct* type
+from geo_block); event on the **Whitelist Event Log**.
 **Reset:** switch mode back to **allow_anywhere**, unblock ATTACKER_IP.
 
 ---
