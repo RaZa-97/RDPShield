@@ -76,6 +76,25 @@ REPUTATION_BLOCK_SCORE   = 85     # AbuseIPDB confidence % -> auto-block
 REPUTATION_USE_VT        = True   # also consult VirusTotal for already-flagged IPs
 REPUTATION_CACHE_HOURS   = 24     # cache a reputation result this long (quota + dedup)
 
+# --- Campaign / coordinated-attack detector ---------------------------------
+# Long-horizon correlation (default 7 days) that catches campaigns no single
+# detector sees: one IP active across many days, a country attacking with many
+# rotating IPs, and attacks that recur in the same time-of-day band. Runs on a
+# timer in the agent. Tiered response: SMS the SOC for every campaign + list it
+# in the dashboard tracker; AUTO-BLOCK only the worst single-IP campaigns
+# (countries stay alert-only — use Geo-Block to act on a whole country).
+CAMPAIGN_ENABLED           = True
+CAMPAIGN_WINDOW_DAYS       = 7    # rolling analysis window
+CAMPAIGN_CHECK_INTERVAL_HOURS = 6  # how often the agent re-runs the analysis
+CAMPAIGN_IP_MIN_DAYS       = 3    # an IP must be active on >= this many days
+CAMPAIGN_IP_MIN_FAILS      = 30   # ...and have >= this many failures, to flag
+CAMPAIGN_IP_BLOCK_FAILS    = 60   # single-IP campaign auto-blocks at/above this
+CAMPAIGN_COUNTRY_MIN_IPS   = 5    # a country needs >= this many distinct IPs...
+CAMPAIGN_COUNTRY_MIN_FAILS = 100  # ...and >= this many failures, to flag
+CAMPAIGN_TIME_PCT          = 50   # >= this % of attempts in a 3h band = "scheduled"
+CAMPAIGN_REALERT_HOURS     = 24   # don't re-SMS the same campaign within this
+CAMPAIGN_AUTOBLOCK_IPS     = True # auto-block the worst single-IP campaigns
+
 # =============================================================================
 # SMS ALERTS (Notify.lk) — register at https://app.notify.lk/register
 # =============================================================================
@@ -85,7 +104,7 @@ NOTIFY_API_KEY = "YOUR_API_KEY"
 NOTIFY_SENDER_ID = "NotifyDEMO"   # Use "NotifyDEMO" for testing
 ALERT_TO_NUMBER = "94XXXXXXXXX"   # Your phone number (format: 9471XXXXXXX)
 
-SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "persistent_attack", "geo_block", "whitelist_block", "yara_critical", "reputation_alert"]
+SMS_ALERT_TYPES = ["brute_force", "password_spray", "slow_attack", "persistent_attack", "geo_block", "whitelist_block", "yara_critical", "reputation_alert", "campaign_alert"]
 
 # =============================================================================
 # DASHBOARD SETTINGS

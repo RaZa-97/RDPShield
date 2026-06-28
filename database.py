@@ -90,6 +90,7 @@ ATTACK_LABELS = {
     "manual":            "Manual Block",
     "manual_memory":     "Manual (Memory)",
     "reputation_alert":  "Reputation Alert",
+    "campaign_alert":    "Campaign",
 }
 
 EVENT_LABELS = {
@@ -301,6 +302,7 @@ def init_db():
     create_yara_tables()
     create_users_table()
     create_abuse_cache_table()
+    create_campaigns_table()
     print("[DB] Database initialized successfully.")
 
 
@@ -373,6 +375,175 @@ def mark_abuse_alerted(ip_address):
     conn = get_connection(); c = conn.cursor()
     c.execute("UPDATE abuse_cache SET alerted = 1 WHERE ip_address = ?", (ip_address,))
     conn.commit(); conn.close()
+
+
+# =============================================================================
+# CAMPAIGN / COORDINATED-ATTACK ANALYSIS (long-horizon, e.g. 7 days)
+# =============================================================================
+# Correlates failed logins over a multi-day window to surface campaigns that no
+# single-window detector catches: a determined IP active across many days, a
+# country attacking with many IPs, and attacks that recur in the same
+# time-of-day band. Day/hour bucketing uses LOCAL time (SQLite 'localtime') so
+# it matches the dashboard's localized timestamps.
+
+def create_campaigns_table():
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaigns (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            ckey           TEXT UNIQUE,        -- 'ip:1.2.3.4' or 'country:Vietnam'
+            ctype          TEXT,               -- 'ip' | 'country'
+            label          TEXT,               -- display label (IP or country name)
+            country        TEXT DEFAULT '',
+            total_fails    INTEGER DEFAULT 0,
+            distinct_days  INTEGER DEFAULT 0,
+            distinct_ips   INTEGER DEFAULT 0,  -- country campaigns only
+            peak_window    TEXT DEFAULT '',    -- e.g. '02:00-05:00' local
+            peak_pct       INTEGER DEFAULT 0,  -- % of attempts in that band
+            scheduled      INTEGER DEFAULT 0,  -- 1 = recurring same-time-of-day
+            blocked        INTEGER DEFAULT 0,
+            first_detected TEXT DEFAULT CURRENT_TIMESTAMP,
+            last_alerted_at TEXT,
+            updated_at     TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    conn.commit(); conn.close()
+
+
+def get_campaign_ip_offenders(days, min_days, min_fails):
+    """IPs active across >= min_days distinct days with >= min_fails failures in
+    the last `days` days. The week-long determined single attacker."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        SELECT fl.source_ip AS source_ip,
+               COUNT(*) AS total_fails,
+               COUNT(DISTINCT substr(datetime(fl.timestamp,'localtime'),1,10)) AS distinct_days,
+               (SELECT gc.country FROM geo_cache gc WHERE gc.ip_address = fl.source_ip) AS country,
+               MIN(fl.timestamp) AS first_seen, MAX(fl.timestamp) AS last_seen
+        FROM failed_logins fl
+        WHERE datetime(fl.timestamp,'localtime') >= datetime('now','localtime', ?)
+        GROUP BY fl.source_ip
+        HAVING distinct_days >= ? AND total_fails >= ?
+        ORDER BY total_fails DESC
+    """, (f"-{days} days", min_days, min_fails))
+    rows = [dict(r) for r in c.fetchall()]; conn.close()
+    return rows
+
+
+def get_campaign_country_offenders(days, min_ips, min_fails):
+    """Countries with >= min_ips distinct attacker IPs and >= min_fails failures
+    in the window. The distributed / IP-rotating campaign."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        SELECT gc.country AS country,
+               COUNT(DISTINCT fl.source_ip) AS distinct_ips,
+               COUNT(*) AS total_fails,
+               COUNT(DISTINCT substr(datetime(fl.timestamp,'localtime'),1,10)) AS distinct_days
+        FROM failed_logins fl
+        JOIN geo_cache gc ON gc.ip_address = fl.source_ip
+        WHERE datetime(fl.timestamp,'localtime') >= datetime('now','localtime', ?)
+          AND gc.country <> ''
+        GROUP BY gc.country
+        HAVING distinct_ips >= ? AND total_fails >= ?
+        ORDER BY total_fails DESC
+    """, (f"-{days} days", min_ips, min_fails))
+    rows = [dict(r) for r in c.fetchall()]; conn.close()
+    return rows
+
+
+def get_hour_histogram(days, scope, value):
+    """24-bucket local-hour histogram of failed logins for one IP or country
+    over the window. `scope` is 'ip' or 'country'. Used to find a recurring
+    same-time-of-day band."""
+    conn = get_connection(); c = conn.cursor()
+    if scope == "ip":
+        c.execute("""
+            SELECT CAST(strftime('%H', datetime(timestamp,'localtime')) AS INT) AS hr,
+                   COUNT(*) AS cnt
+            FROM failed_logins
+            WHERE source_ip = ?
+              AND datetime(timestamp,'localtime') >= datetime('now','localtime', ?)
+            GROUP BY hr
+        """, (value, f"-{days} days"))
+    else:
+        c.execute("""
+            SELECT CAST(strftime('%H', datetime(fl.timestamp,'localtime')) AS INT) AS hr,
+                   COUNT(*) AS cnt
+            FROM failed_logins fl
+            JOIN geo_cache gc ON gc.ip_address = fl.source_ip
+            WHERE gc.country = ?
+              AND datetime(fl.timestamp,'localtime') >= datetime('now','localtime', ?)
+            GROUP BY hr
+        """, (value, f"-{days} days"))
+    hist = [0] * 24
+    for r in c.fetchall():
+        if r["hr"] is not None:
+            hist[r["hr"]] = r["cnt"]
+    conn.close()
+    return hist
+
+
+def upsert_campaign(ckey, ctype, label, country, total_fails, distinct_days,
+                    distinct_ips, peak_window, peak_pct, scheduled):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        INSERT INTO campaigns
+            (ckey, ctype, label, country, total_fails, distinct_days,
+             distinct_ips, peak_window, peak_pct, scheduled, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(ckey) DO UPDATE SET
+            total_fails=excluded.total_fails, distinct_days=excluded.distinct_days,
+            distinct_ips=excluded.distinct_ips, peak_window=excluded.peak_window,
+            peak_pct=excluded.peak_pct, scheduled=excluded.scheduled,
+            country=excluded.country, label=excluded.label,
+            updated_at=CURRENT_TIMESTAMP
+    """, (ckey, ctype, label, country, total_fails, distinct_days, distinct_ips,
+          peak_window, peak_pct, 1 if scheduled else 0))
+    conn.commit(); conn.close()
+
+
+def get_campaign(ckey):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM campaigns WHERE ckey = ?", (ckey,))
+    row = c.fetchone(); conn.close()
+    return dict(row) if row else None
+
+
+def mark_campaign_alerted(ckey, blocked=False):
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""UPDATE campaigns SET last_alerted_at = CURRENT_TIMESTAMP,
+                 blocked = MAX(blocked, ?) WHERE ckey = ?""",
+              (1 if blocked else 0, ckey))
+    conn.commit(); conn.close()
+
+
+def campaign_needs_alert(ckey, realert_hours):
+    """True if this campaign has never been alerted, or not within realert_hours."""
+    row = get_campaign(ckey)
+    if not row or not row.get("last_alerted_at"):
+        return True
+    try:
+        last = datetime.strptime(row["last_alerted_at"][:19].replace("T", " "),
+                                 "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return True
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)   # CURRENT_TIMESTAMP is UTC
+    return (now_utc - last) > timedelta(hours=realert_hours)
+
+
+def get_campaigns(limit=50):
+    """Active campaigns for the dashboard tracker, worst first. Localizes times."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""
+        SELECT * FROM campaigns
+        ORDER BY total_fails DESC, distinct_days DESC LIMIT ?""", (limit,))
+    rows = []
+    for r in c.fetchall():
+        d = dict(r)
+        d["first_detected"] = utc_to_local_str(d.get("first_detected"))
+        d["last_alerted_at"] = utc_to_local_str(d.get("last_alerted_at")) if d.get("last_alerted_at") else ""
+        rows.append(d)
+    conn.close()
+    return rows
 
 # ============ YARA tables (v3.0) ============
 

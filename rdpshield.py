@@ -73,6 +73,7 @@ from database import (
 from firewall import block_ip
 import yara_scheduler
 import virustotal
+import campaign_detector
 from alerts import (
     process_alert_enrichment,
     send_block_sms,
@@ -90,6 +91,10 @@ REPUTATION_ALERT_SCORE   = getattr(_cfg, "REPUTATION_ALERT_SCORE", 50)
 REPUTATION_BLOCK_SCORE   = getattr(_cfg, "REPUTATION_BLOCK_SCORE", 85)
 REPUTATION_USE_VT        = getattr(_cfg, "REPUTATION_USE_VT", True)
 REPUTATION_CACHE_HOURS   = getattr(_cfg, "REPUTATION_CACHE_HOURS", 24)
+
+# Campaign detector: how often the agent re-runs the rolling-window analysis.
+CAMPAIGN_CHECK_INTERVAL_HOURS = getattr(_cfg, "CAMPAIGN_CHECK_INTERVAL_HOURS", 6)
+_last_campaign_run = 0.0   # epoch of last campaign analysis (0 = run on startup)
 
 
 # Track which IPs have already triggered alerts (to avoid duplicates)
@@ -837,6 +842,23 @@ def handle_detection(alert_type, source_ip, detail_info, extra=None,
     )
 
 
+def maybe_run_campaign_analysis():
+    """Run the long-horizon campaign analysis on a timer (every
+    CAMPAIGN_CHECK_INTERVAL_HOURS). Wrapped so any failure is logged but never
+    disrupts the real-time event monitoring loop."""
+    global _last_campaign_run
+    now = time.time()
+    if now - _last_campaign_run < CAMPAIGN_CHECK_INTERVAL_HOURS * 3600:
+        return
+    _last_campaign_run = now
+    try:
+        stats = campaign_detector.run_campaign_analysis()
+        if stats.get("alerted") or stats.get("ip_campaigns") or stats.get("country_campaigns"):
+            print(f"[CAMPAIGN] analysis: {stats}", flush=True)
+    except Exception as e:
+        print(f"[CAMPAIGN] analysis error: {e}", flush=True)
+
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -897,6 +919,8 @@ def main():
                         process_failed_login(event)
                     elif event["event_id"] == EVENT_ID_SUCCESS_LOGON:
                         process_successful_login(event)
+
+            maybe_run_campaign_analysis()
 
             time.sleep(POLL_SPEED)
 

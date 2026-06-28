@@ -471,6 +471,11 @@ code {
     color: #d97706;
 }
 
+.badge-campaign_alert {
+    background: rgba(190, 24, 93, 0.12);
+    color: #be185d;
+}
+
 .badge-geo-blocked {
     background: rgba(220, 38, 38, 0.1);
     color: var(--critical);

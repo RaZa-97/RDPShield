@@ -118,6 +118,15 @@
             {% endif %}
         </div>
 
+        <!-- Campaign tracker (long-horizon, 7-day) -->
+        <div class="section">
+            <h2>{{ icon('alert') }} Campaigns (7-day)</h2>
+            <p class="section-desc" style="margin-bottom:12px;">Coordinated / low-and-slow attacks correlated across days &mdash; a determined IP over many days, a country attacking with many IPs, or attacks recurring in the same time-of-day window. The worst single-IP campaigns are auto-blocked; all are SMS&rsquo;d to the SOC.</p>
+            <div id="campaignsSection">
+                <p class="empty">Loading campaigns&hellip;</p>
+            </div>
+        </div>
+
         <!-- Active Alerts -->
         <div class="section">
             <h2>{{ icon('alert') }} Recent Alerts</h2>
@@ -603,6 +612,16 @@
             }).catch(() => { /* keep last view on transient error */ });
         }
         setInterval(liveRefresh, 10000);
+
+        // Campaign tracker (refreshes less often — it's a 7-day rollup).
+        function loadCampaigns() {
+            fetch('/api/campaigns?limit=50').then(r => r.json()).then(rows => {
+                const el = document.getElementById('campaignsSection');
+                if (el) el.innerHTML = buildCampaigns(rows);
+            }).catch(() => { /* keep last view */ });
+        }
+        loadCampaigns();
+        setInterval(loadCampaigns, 30000);
     </script>
 </body>
 </html>

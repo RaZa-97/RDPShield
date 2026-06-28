@@ -30,12 +30,13 @@ monitoring, geographic access control, and a YARA scan controller.
 
 ## Features
 
-- **Five detection algorithms**
+- **Six detection algorithms**
   - Fast brute force — 5 failed logins in 60 s
   - Slow-and-low — 10 failed logins in 600 s (with timing-regularity analysis)
   - Password spray — 4+ unique usernames in 300 s
   - Persistent / low-and-slow — 15 cumulative failed logins in 24 h (catch-all for very slow attackers)
   - Reputation / threat-intel — low-volume IPs flagged by AbuseIPDB (cached) and VirusTotal; tiered alert (≥50%) / auto-block (≥85%)
+  - Campaign / coordinated-attack — 7-day correlation: a determined IP over many days, a country attacking with many IPs, or attacks recurring in the same time-of-day window; SMS the SOC + auto-block the worst single-IP campaigns
 - **Automatic response** — blocks attacker IPs via Windows Firewall (`netsh`), with whitelist protection against self-lockout
 - **IP enrichment** — geolocation (country / city / ISP) via [ip-api.com] and abuse reputation scoring via [AbuseIPDB]
 - **Geographic access control** — three modes: allow anywhere, IP whitelist only, or country whitelist

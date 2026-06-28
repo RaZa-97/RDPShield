@@ -231,6 +231,36 @@ function buildAudit(rows) {
     return h + '</tbody></table>';
 }
 
+// Campaign tracker: long-horizon (7-day) coordinated/low-and-slow campaigns.
+function buildCampaigns(rows) {
+    if (!rows.length) return '<p class="empty">No campaigns detected over the last 7 days.</p>';
+    let h = '<table><thead><tr><th>Type</th><th>IP / Country</th><th>Failures</th>'
+        + '<th>Days</th><th>IPs</th><th>Time window</th><th>Status</th></tr></thead><tbody>';
+    for (const c of rows) {
+        const isCountry = c.ctype === 'country';
+        const typeBadge = isCountry
+            ? '<span class="badge badge-geo_block">Country</span>'
+            : '<span class="badge badge-persistent_attack">Single IP</span>';
+        const schedBadge = c.scheduled
+            ? ' <span class="badge badge-reputation_alert" title="recurs in the same time-of-day band">Scheduled</span>' : '';
+        const win = c.scheduled
+            ? esc(c.peak_window) + ' <span class="muted">(' + (c.peak_pct || 0) + '%)</span>'
+            : '<span class="muted">&mdash;</span>';
+        const status = c.blocked
+            ? '<span class="badge badge-brute_force">Auto-blocked</span>'
+            : '<span class="badge badge-manual_block">Alerted</span>';
+        h += '<tr><td>' + typeBadge + schedBadge + '</td>'
+            + '<td class="ip">' + esc(c.label)
+            + (!isCountry && c.country ? ' <span class="muted">(' + esc(c.country) + ')</span>' : '') + '</td>'
+            + '<td><strong>' + (c.total_fails || 0) + '</strong></td>'
+            + '<td>' + (c.distinct_days || 0) + '</td>'
+            + '<td>' + (isCountry ? (c.distinct_ips || 0) : '&mdash;') + '</td>'
+            + '<td>' + win + '</td>'
+            + '<td>' + status + '</td></tr>';
+    }
+    return h + '</tbody></table>';
+}
+
 const TABLE_RENDERERS = {
     alerts: buildAlerts,
     blocked: buildBlocked,
@@ -238,6 +268,7 @@ const TABLE_RENDERERS = {
     geo: buildGeoEvents,
     yara_history: buildYaraHistory,
     audit: buildAudit,
+    campaigns: buildCampaigns,
 };
 
 // --- Standalone full-list page: search + client-side pagination ------------

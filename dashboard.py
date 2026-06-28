@@ -97,7 +97,7 @@ from daily_report import write_report, REPORT_DIR
 
 app = Flask(__name__)
 from yara_routes import yara_bp
-from database import create_yara_tables, create_users_table
+from database import create_yara_tables, create_users_table, get_campaigns
 
 app.register_blueprint(yara_bp)
 create_yara_tables()
@@ -1394,6 +1394,12 @@ def api_alert_breakdown():
 @app.route("/api/attack_map")
 def api_attack_map():
     return jsonify(get_attack_map_points(limit=500))
+
+
+@app.route("/api/campaigns")
+def api_campaigns():
+    """Long-horizon campaign tracker rows (worst first) for the dashboard."""
+    return jsonify(get_campaigns(limit=_req_limit(50)))
 
 
 @app.route("/api/threat_scores")
