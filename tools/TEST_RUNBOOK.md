@@ -1,6 +1,6 @@
-# RDPShield — Test Runbook (T1–T7) for Dissertation Chapter 6
+# RDPShield — Test Runbook (T1–T8) for Dissertation Chapter 6
 
-> All seven controlled tests in one place. Run each, watch the dashboard, and fill
+> All eight controlled tests in one place. Run each, watch the dashboard, and fill
 > Table 6 (detected/blocked/SMS) and the latency table in the dissertation.
 >
 > ⚠ **Authorisation:** only against YOUR own server, and **from a different
@@ -95,10 +95,26 @@ python3 window_check.py $ATTACKER_IP   # shows brute<5/60s and slow<10/600s — 
 and VirusTotal flags it) the IP is **blocked** too; otherwise it's **alert-only**.
 Re-running within 24 h won't re-text (dedup). **Reset `REPUTATION_ALERT_SCORE` to 50.**
 
+## T8 — Campaign / coordinated-attack  *(long-horizon, 7-day correlation)*
+Catches sustained multi-day campaigns: one IP over many days, many IPs from one
+country, or attempts recurring in the same time-of-day band. This is a rollup of
+the honeypot's own data, so it's best demonstrated against accumulated traffic.
+```bash
+# Dry run on the server shows what it would flag right now (no SMS/block):
+python campaign_detector.py
+```
+To force a demo without a week of data, temporarily lower the bar in the server
+`config.py` (e.g. `CAMPAIGN_COUNTRY_MIN_FAILS = 10`, `CAMPAIGN_IP_MIN_FAILS = 8`,
+`CAMPAIGN_IP_MIN_DAYS = 1`), restart the agent, generate a couple of dozen fails
+across two sessions, then check the **Campaigns (7-day)** panel. Put the values back.
+**Expect:** a `campaign_alert` + SMS to the SOC and a row in the Campaigns tracker;
+the worst single-IP campaigns are **auto-blocked**, countries are **alert-only**.
+A campaign clustered in one daily time-band shows a **Scheduled** badge + the window.
+
 ---
 
-## After all seven tests
-- Fill **Table 3 / Table 6** (Detected / Blocked / SMS, Yes/No for T1–T7).
+## After all eight tests
+- Fill **Table 6** (Detected / Blocked / SMS, Yes/No for T1–T8).
 - Fill **Table 4** (latency): read timestamps from the agent log and the
   `alerts` / `blocked_ips` rows; latency = block time − first-attempt time.
 - Capture **Figure 6** (attacker terminal + dashboard alert + SMS) during T1.
