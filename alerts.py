@@ -117,7 +117,10 @@ def check_abuse_reputation(ip_address):
         if response.status_code == 200:
             data = response.json().get("data", {})
             result = {
-                "abuse_score": data.get("abuseConfidencePercentage", 0),
+                # AbuseIPDB v2 /check returns 'abuseConfidenceScore' (0-100).
+                # The old key 'abuseConfidencePercentage' does not exist, so the
+                # score was silently always 0 even when the IP was reported.
+                "abuse_score": data.get("abuseConfidenceScore", 0),
                 "total_reports": data.get("totalReports", 0),
                 "country_code": data.get("countryCode", ""),
                 "isp": data.get("isp", ""),
