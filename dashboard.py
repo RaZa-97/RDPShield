@@ -1056,7 +1056,7 @@ def settings_page():
         all_sms_types=settings.ALL_SMS_TYPES,
         active_sms_types=settings.sms_alert_types(),
         retention_days=settings.retention_days(),
-        audit=get_audit(limit=100),
+        audit=get_audit(limit=5),
         key_status=settings.key_rotation_status(),
         rotation_interval=settings.rotation_interval_days(),
         rotation_enabled=settings.reminders_enabled(),
