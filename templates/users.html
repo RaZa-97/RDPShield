@@ -28,14 +28,14 @@
 
         <div class="section">
             <h2>{{ icon('plus') }} Add User</h2>
-            <p class="section-desc">New users set up their authenticator app the first time they sign in. A phone number (Notify.lk format, e.g. <code>94771234567</code>) enables SMS password resets.</p>
+            <p class="section-desc">New users must verify a one-time SMS code before their first sign-in, then set up their authenticator app. A mobile number (Notify.lk format, e.g. <code>94771234567</code>) is therefore <strong>required</strong>.{% if not i_am_root %} Only the root admin can create admin accounts.{% endif %}</p>
             <form method="POST" action="/users/add" class="inline-form">
                 <input type="text" name="username" placeholder="Username" class="form-input" required autocomplete="off">
-                <input type="password" name="password" placeholder="Initial password" class="form-input" required autocomplete="new-password">
-                <input type="text" name="phone" placeholder="Phone (optional, e.g. 94771234567)" class="form-input" autocomplete="off">
+                <input type="password" name="password" placeholder="Initial password (min 12)" class="form-input" required autocomplete="new-password">
+                <input type="text" name="phone" placeholder="Mobile (e.g. 94771234567)" class="form-input" required autocomplete="off">
                 <select name="role" class="form-input">
                     <option value="guest">Guest (view + export)</option>
-                    <option value="admin">Admin (full control)</option>
+                    {% if i_am_root %}<option value="admin">Admin (full control)</option>{% endif %}
                 </select>
                 <button type="submit" class="btn-add">Add User</button>
             </form>
@@ -50,7 +50,6 @@
                 <tbody>
                     {% for u in users %}
                     {% set is_me = (u.id == current_user.id) %}
-                    {% set protected_root = (u.is_root and not current_user.is_root) %}
                     <tr {% if u.disabled %}class="row-disabled"{% endif %}>
                         <td>
                             <strong>{{ u.username }}</strong>
@@ -61,12 +60,15 @@
                             {% if u.role == 'admin' %}<span class="badge badge-manual_block">ADMIN</span>
                             {% else %}<span class="badge badge-geo-allowed">GUEST</span>{% endif %}
                         </td>
-                        <td>{% if u.disabled %}<span class="score-high">disabled</span>{% else %}<span class="score-low">active</span>{% endif %}</td>
+                        <td>{% if u.disabled %}<span class="score-high">disabled</span>
+                            {% elif not u.verified %}<span class="score-medium" title="Waiting for the user to enter their SMS verification code">pending verification</span>
+                            {% else %}<span class="score-low">active</span>{% endif %}</td>
                         <td>{% if u.mfa_enabled %}<span class="score-low">enrolled</span>{% else %}<span class="score-medium">pending</span>{% endif %}</td>
                         <td>{{ u.phone or '—' }}</td>
                         <td>{{ u.last_login or '—' }}</td>
                         <td class="actions-cell">
-                            <!-- Reset password / set phone -->
+                            {% if u.can_manage %}
+                            <!-- Reset password / set phone. A password change re-gates the user by SMS. -->
                             <details class="row-edit">
                                 <summary class="btn-sm btn-wl">Edit</summary>
                                 <form method="POST" action="/users/update/{{ u.id }}" class="row-edit-form">
@@ -76,8 +78,15 @@
                                 </form>
                             </details>
 
+                            <!-- Resend verification code (pending accounts only) -->
+                            {% if not u.verified %}
+                            <form method="POST" action="/users/resend_verify/{{ u.id }}" style="display:inline;">
+                                <button type="submit" class="btn-sm btn-ig">Resend code</button>
+                            </form>
+                            {% endif %}
+
                             <!-- Enable / Disable -->
-                            {% if not is_me and not protected_root %}
+                            {% if not is_me %}
                                 {% if u.disabled %}
                                 <form method="POST" action="/users/enable/{{ u.id }}" style="display:inline;">
                                     <button type="submit" class="btn-sm btn-wl">Enable</button>
@@ -93,18 +102,21 @@
 
                             <!-- Reset MFA -->
                             <form method="POST" action="/users/reset_mfa/{{ u.id }}" class="confirm-form"
-                                  data-confirm-message="Reset MFA for {{ u.username }}? They'll re-enroll their authenticator on next login."
+                                  data-confirm-message="Reset MFA for {{ u.username }}? They'll verify an SMS code, then re-enroll their authenticator on next login."
                                   data-confirm-title="Reset MFA" data-confirm-ok="Reset MFA" style="display:inline;">
                                 <button type="submit" class="btn-sm btn-ig">Reset MFA</button>
                             </form>
 
-                            <!-- Delete: never for self or a root account viewed by a secondary admin -->
-                            {% if not is_me and not protected_root %}
+                            <!-- Delete -->
+                            {% if not is_me %}
                             <form method="POST" action="/users/delete/{{ u.id }}" class="confirm-form"
                                   data-confirm-message="Delete user {{ u.username }}? This cannot be undone."
                                   data-confirm-title="Delete user" data-confirm-ok="Delete" data-confirm-danger="true" style="display:inline;">
                                 <button type="submit" class="btn-remove">Delete</button>
                             </form>
+                            {% endif %}
+                            {% else %}
+                            <span class="muted">view only</span>
                             {% endif %}
                         </td>
                     </tr>

@@ -71,6 +71,8 @@ from database import (
     update_user_password,
     get_root_user,
     set_user_theme,
+    set_user_verify_code,
+    clear_user_verify,
     # Settings / recipients / audit / retention
     create_settings_tables,
     get_setting,
@@ -425,6 +427,13 @@ def login():
             return render_template("login.html",
                                    error="This account is disabled. Contact an administrator.")
 
+        # Phone-ownership gate: a pending/unverified account (new user, or a user
+        # whose credentials were just changed) must confirm the SMS code first.
+        if not user.get("verified", 1):
+            flash("This account isn't verified yet — enter the code sent to your phone.",
+                  "error")
+            return redirect(url_for("verify_account", u=username))
+
         # Suspicious concurrent login: a valid password while the account is
         # already actively in use. Temporarily locks the account (root is only
         # warned); the owner can clear it via the SMS unlock flow.
@@ -720,32 +729,100 @@ def unlock_verify():
 # USER MANAGEMENT (admin only)
 # =========================================================================
 
+# --- Phone-ownership verification + RBAC for user management ---------------
+_VERIFY_TTL = 1800   # a verification code is valid for 30 minutes
+
+
+def _can_manage(actor, target):
+    """RBAC for user-management actions on `target` by `actor`:
+      - root admin           -> may manage anyone (incl. root / self)
+      - admin (non-root)      -> may manage SELF and GUEST users only
+      - guest                 -> never reaches these routes (admin_required)
+    """
+    if not actor or not target:
+        return False
+    if actor.get("is_root"):
+        return True
+    if target.get("is_root"):
+        return False
+    if target.get("role") == "admin" and target.get("id") != actor.get("id"):
+        return False
+    return True
+
+
+def _issue_verification(user, purpose):
+    """Mark `user` unverified and text a fresh 6-digit code to their phone.
+    Returns (sent, masked_phone). If the user has no phone the account is left
+    as-is (caller decides) and (False, "") is returned — we can't gate an
+    account we can't text."""
+    phone = _normalize_phone(user.get("phone") or "")
+    if not phone:
+        return False, ""
+    code = f"{secrets.randbelow(1000000):06d}"
+    set_user_verify_code(user["id"], auth.hash_password(code),
+                         time.time() + _VERIFY_TTL, purpose)
+    if purpose == "new_user":
+        body = (f"RDPShield: verify your new account. Code: {code} (valid 30 min). "
+                f"Enter it on the Verify page to activate your account.")
+    else:
+        body = (f"RDPShield: your account credentials were changed. Code: {code} "
+                f"(valid 30 min). Enter it on the Verify page to re-activate your account.")
+    ok = send_sms_to(phone, body)
+    print(f"[AUTH] Verification code ({purpose}) for {user['username']} -> {phone} ok={ok}")
+    return ok, _mask_phone(phone)
+
+
 @app.route("/users")
 @auth.admin_required
 def users_page():
-    return render_template("users.html", users=list_users())
+    me = get_user_by_id(session.get("user_id"))
+    rows = list_users()
+    # Pre-compute, per row, whether the current actor may manage it (drives the
+    # template's show/hide of the change / MFA / delete / disable actions).
+    for u in rows:
+        u["can_manage"] = _can_manage(me, u)
+    return render_template("users.html", users=rows, me=me,
+                           i_am_root=bool(me and me.get("is_root")))
 
 
 @app.route("/users/add", methods=["POST"])
 @auth.admin_required
 def users_add():
+    actor = get_user_by_id(session.get("user_id"))
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
     phone = _normalize_phone(request.form.get("phone", "")) or None
     role = request.form.get("role", "guest")
     if role not in ("admin", "guest"):
         role = "guest"
+    # Only the root admin may create admin accounts; admins create guests only.
+    if role == "admin" and not (actor and actor.get("is_root")):
+        flash("Only the root admin can create admin accounts.", "error")
+        return redirect(url_for("users_page"))
     if username and not _password_ok(password):
         flash(f"Password must be at least {MIN_PASSWORD_LEN} characters.", "error")
         return redirect(url_for("users_page"))
+    # A mobile number is required: the new user must verify a code before login.
+    if username and password and not phone:
+        flash("A mobile number is required — the new user verifies a code before first login.",
+              "error")
+        return redirect(url_for("users_page"))
     if username and password:
-        ok = create_user(username, auth.hash_password(password), role=role,
-                         phone=phone)
-        if not ok:
+        uid = create_user(username, auth.hash_password(password), role=role,
+                          phone=phone, verified=0)
+        if not uid:
             flash(f"Username '{username}' already exists.", "error")
         else:
-            print(f"[AUTH] Created {role} user: {username}")
-            _audit("user.add", f"{username} ({role})")
+            new_user = get_user_by_id(uid)
+            sent, masked = _issue_verification(new_user, "new_user")
+            _audit("user.add", f"{username} ({role}); pending verification")
+            print(f"[AUTH] Created {role} user (pending verification): {username}")
+            if sent:
+                flash(f"Created '{username}'. A verification code was texted to {masked}; "
+                      f"they must verify before they can sign in.", "success")
+            else:
+                flash(f"Created '{username}', but the verification SMS failed. Use "
+                      f"'Resend code', or check the number / SMS settings.", "error")
     return redirect(url_for("users_page"))
 
 
@@ -764,8 +841,8 @@ def users_delete(user_id):
         pass
     elif user_id == session.get("user_id"):
         flash("You can't delete your own account while signed in.", "error")
-    elif target.get("is_root") and not _i_am_root():
-        flash("The root admin can't be deleted by a secondary admin.", "error")
+    elif not _can_manage(get_user_by_id(session.get("user_id")), target):
+        flash("You don't have permission to delete that user.", "error")
     elif target["role"] == "admin" and count_admins() <= 1:
         flash("Can't delete the last remaining admin.", "error")
     else:
@@ -778,21 +855,39 @@ def users_delete(user_id):
 @app.route("/users/reset_mfa/<int:user_id>", methods=["POST"])
 @auth.admin_required
 def users_reset_mfa(user_id):
-    """Clear a user's TOTP so they re-enroll on next login (lost-phone case)."""
+    """Clear a user's TOTP so they re-enroll on next login (lost-phone case).
+    The affected user must then verify an SMS code before signing in again."""
+    actor = get_user_by_id(session.get("user_id"))
     target = get_user_by_id(user_id)
-    if target:
-        set_user_totp(user_id, None, enabled=0)
-        _audit("user.reset_mfa", target["username"])
-        print(f"[AUTH] Reset MFA for user: {target['username']}")
+    if not target:
+        return redirect(url_for("users_page"))
+    if not _can_manage(actor, target):
+        flash("You don't have permission to change that user's MFA.", "error")
+        return redirect(url_for("users_page"))
+    set_user_totp(user_id, None, enabled=0)
+    _audit("user.reset_mfa", target["username"])
+    print(f"[AUTH] Reset MFA for user: {target['username']}")
+    sent, masked = _issue_verification(target, "cred_change")
+    if sent:
+        flash(f"Reset MFA for {target['username']}. They must verify the code sent to "
+              f"{masked}, then re-enrol their authenticator on next sign-in.", "success")
+    else:
+        flash(f"Reset MFA for {target['username']} (re-enrols on next sign-in). "
+              f"No phone on file, so no verification code was sent.", "success")
     return redirect(url_for("users_page"))
 
 
 @app.route("/users/update/<int:user_id>", methods=["POST"])
 @auth.admin_required
 def users_update(user_id):
-    """Admin sets a new password and/or phone for a user (blank = unchanged)."""
+    """Admin/root sets a new password and/or phone for a user (blank = unchanged).
+    A password change requires the affected user to re-verify by SMS code."""
+    actor = get_user_by_id(session.get("user_id"))
     target = get_user_by_id(user_id)
     if not target:
+        return redirect(url_for("users_page"))
+    if not _can_manage(actor, target):
+        flash("You don't have permission to change that user.", "error")
         return redirect(url_for("users_page"))
     new_pw = request.form.get("password", "")
     phone = _normalize_phone(request.form.get("phone", ""))
@@ -806,9 +901,21 @@ def users_update(user_id):
     if phone != (target.get("phone") or ""):
         update_user_phone(user_id, phone or None)
         changed.append("phone")
-    if changed:
-        _audit("user.update", f"{target['username']}: {', '.join(changed)}")
-        print(f"[AUTH] Updated {target['username']}: {', '.join(changed)}")
+    if not changed:
+        return redirect(url_for("users_page"))
+    _audit("user.update", f"{target['username']}: {', '.join(changed)}")
+    print(f"[AUTH] Updated {target['username']}: {', '.join(changed)}")
+    if "password" in changed:
+        # Re-read (phone may have changed in this request) then gate by SMS code.
+        target = get_user_by_id(user_id)
+        sent, masked = _issue_verification(target, "cred_change")
+        if sent:
+            flash(f"Updated {target['username']}. They must verify the code sent to "
+                  f"{masked} before they can sign in again.", "success")
+        else:
+            flash(f"Updated {target['username']} ({', '.join(changed)}). No phone on "
+                  f"file, so the change applies without a verification code.", "success")
+    else:
         flash(f"Updated {target['username']} ({', '.join(changed)}).", "success")
     return redirect(url_for("users_page"))
 
@@ -821,8 +928,8 @@ def users_disable(user_id):
         pass
     elif user_id == session.get("user_id"):
         flash("You can't disable your own account.", "error")
-    elif target.get("is_root") and not _i_am_root():
-        flash("The root admin can't be disabled by a secondary admin.", "error")
+    elif not _can_manage(get_user_by_id(session.get("user_id")), target):
+        flash("You don't have permission to disable that user.", "error")
     elif target["role"] == "admin" and count_admins() <= 1:
         flash("Can't disable the last remaining admin.", "error")
     else:
@@ -841,6 +948,59 @@ def users_enable(user_id):
         _audit("user.enable", target["username"])
         print(f"[AUTH] Enabled user: {target['username']}")
     return redirect(url_for("users_page"))
+
+
+@app.route("/users/resend_verify/<int:user_id>", methods=["POST"])
+@auth.admin_required
+def users_resend_verify(user_id):
+    """Re-send a pending user's verification code (subject to the same RBAC)."""
+    actor = get_user_by_id(session.get("user_id"))
+    target = get_user_by_id(user_id)
+    if not target or not _can_manage(actor, target):
+        flash("You can't resend a code for that user.", "error")
+        return redirect(url_for("users_page"))
+    if target.get("verified"):
+        flash(f"{target['username']} is already verified.", "error")
+        return redirect(url_for("users_page"))
+    purpose = target.get("verify_purpose") or "new_user"
+    sent, masked = _issue_verification(target, purpose)
+    flash(f"Verification code resent to {masked}." if sent
+          else "Couldn't send the code — check the phone number / SMS settings.",
+          "success" if sent else "error")
+    return redirect(url_for("users_page"))
+
+
+@app.route("/verify", methods=["GET", "POST"])
+def verify_account():
+    """Public page where a pending user enters the SMS code to activate (or
+    re-activate, after a credential change) their account. No login required."""
+    if session.get("user_id"):
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        code = request.form.get("code", "").strip()
+        user = get_user_by_username(username)
+        # Neutral error for a missing user / bad code (no account enumeration).
+        if not user or user.get("verified"):
+            if user and user.get("verified"):
+                flash("That account is already verified — please sign in.", "success")
+                return redirect(url_for("login"))
+            return render_template("verify.html", username=username,
+                                   error="Incorrect username or code.")
+        if not user.get("verify_code_hash") or time.time() > (user.get("verify_expires") or 0):
+            return render_template("verify.html", username=username,
+                                   error="That code has expired. Ask an administrator to resend it.")
+        if not auth.verify_password(user["verify_code_hash"], code):
+            return render_template("verify.html", username=username,
+                                   error="Incorrect username or code.")
+        clear_user_verify(user["id"])
+        add_audit(username, "user.verified",
+                  f"phone verified ({user.get('verify_purpose') or 'new_user'})",
+                  request.remote_addr or "")
+        print(f"[AUTH] Account verified: {username}")
+        flash("Account verified. You can now sign in.", "success")
+        return redirect(url_for("login"))
+    return render_template("verify.html", username=request.args.get("u", ""), error=None)
 
 
 # =========================================================================

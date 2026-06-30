@@ -1569,7 +1569,13 @@ def create_users_table():
     for col, ddl in (("disabled", "INTEGER DEFAULT 0"),
                      ("is_root", "INTEGER DEFAULT 0"),
                      ("phone", "TEXT"),
-                     ("theme", "TEXT DEFAULT 'dark'")):
+                     ("theme", "TEXT DEFAULT 'dark'"),
+                     # Phone-ownership verification (new users + credential changes).
+                     # Existing users default to verified=1 so they are not locked out.
+                     ("verified", "INTEGER DEFAULT 1"),
+                     ("verify_code_hash", "TEXT DEFAULT ''"),
+                     ("verify_expires", "REAL DEFAULT 0"),
+                     ("verify_purpose", "TEXT DEFAULT ''")):
         if col not in existing:
             c.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
     # Ensure exactly one root admin exists: the earliest admin account.
@@ -1591,21 +1597,41 @@ def count_users():
 
 
 def create_user(username, password_hash, role="guest", totp_secret=None,
-                mfa_enabled=0, phone=None, is_root=0):
-    """Create a user. Returns True on success, False if the name is taken."""
+                mfa_enabled=0, phone=None, is_root=0, verified=1):
+    """Create a user. Returns the new user id on success, None if the name is
+    taken. `verified=0` creates a pending account that must confirm a phone code
+    before it can log in (used for console-created users)."""
     conn = get_connection(); c = conn.cursor()
     try:
         c.execute("""
             INSERT INTO users (username, password_hash, role, totp_secret,
-                               mfa_enabled, phone, is_root)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                               mfa_enabled, phone, is_root, verified)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (username, password_hash, role, totp_secret, mfa_enabled,
-              phone, is_root))
-        conn.commit(); ok = True
+              phone, is_root, verified))
+        conn.commit(); uid = c.lastrowid
     except sqlite3.IntegrityError:
-        ok = False
+        uid = None
     conn.close()
-    return ok
+    return uid
+
+
+# --- Phone-ownership verification (code lifecycle) ---
+def set_user_verify_code(user_id, code_hash, expires, purpose):
+    """Stage a pending verification code and mark the account unverified."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""UPDATE users SET verified = 0, verify_code_hash = ?,
+                 verify_expires = ?, verify_purpose = ? WHERE id = ?""",
+              (code_hash, expires, purpose, user_id))
+    conn.commit(); conn.close()
+
+
+def clear_user_verify(user_id):
+    """Mark the account verified and clear any pending code."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("""UPDATE users SET verified = 1, verify_code_hash = '',
+                 verify_expires = 0, verify_purpose = '' WHERE id = ?""", (user_id,))
+    conn.commit(); conn.close()
 
 
 def get_user_by_username(username):
@@ -1626,7 +1652,7 @@ def list_users():
     conn = get_connection(); c = conn.cursor()
     c.execute("""
         SELECT id, username, role, mfa_enabled, created_at, last_login,
-               disabled, is_root, phone
+               disabled, is_root, phone, verified
         FROM users ORDER BY is_root DESC, role = 'admin' DESC, username ASC
     """)
     rows = [dict(r) for r in c.fetchall()]; conn.close()

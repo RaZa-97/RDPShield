@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% include '_pwa_head.html' %}
+    <title>RDPShield — Verify account</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+            <div>
+                <div class="auth-title">RDPSHIELD</div>
+                <div class="auth-tag">RDP Threat Defense</div>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for category, message in messages %}
+            <div class="auth-error" style="{% if category == 'success' %}background:rgba(16,185,129,.12);color:#10b981;border-color:#10b981;{% endif %}">{{ message }}</div>
+          {% endfor %}
+        {% endwith %}
+        {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+
+        <div class="auth-step">ACCOUNT VERIFICATION</div>
+        <h1 class="auth-h1">Verify your account</h1>
+        <p class="auth-sub">A 6-digit code was sent by SMS to your registered phone — either
+            because your account was just created, or because its credentials were changed.
+            Enter your username and the code to activate your account, then sign in.</p>
+
+        <form method="POST" action="/verify" class="auth-form">
+            <label class="auth-label" for="username">Username</label>
+            <input class="form-input auth-input" type="text" id="username" name="username"
+                   value="{{ username or '' }}" autocomplete="username"
+                   {% if not username %}autofocus{% endif %} required>
+
+            <label class="auth-label" for="code" style="margin-top:12px;">Verification code</label>
+            <input class="form-input auth-input" type="text" id="code" name="code"
+                   inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                   autocomplete="one-time-code" placeholder="000000"
+                   {% if username %}autofocus{% endif %} required>
+
+            <button type="submit" class="btn-apply auth-submit">Verify &amp; activate</button>
+        </form>
+
+        <p class="auth-sub" style="margin-top:14px;font-size:.85em;">
+            Didn't get a code? Ask an administrator to resend it from the Users page.</p>
+
+        <div class="auth-links"><a href="/login" class="auth-back">&larr; Back to sign in</a></div>
+    </div>
+
+    <script>
+        const code = document.getElementById('code');
+        if (code) code.addEventListener('input', () => { code.value = code.value.replace(/[^0-9]/g, ''); });
+    </script>
+</body>
+</html>
