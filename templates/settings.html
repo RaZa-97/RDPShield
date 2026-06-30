@@ -179,9 +179,18 @@
             <form method="POST" action="/reports/generate" class="inline-form">
                 <button type="submit" class="btn-add">Generate today's report now</button>
             </form>
+
+            <form method="POST" action="/settings/report_retention" class="inline-form" style="margin-top:10px;">
+                <label class="ml-meta" style="display:flex;align-items:center;gap:8px;">Keep reports for
+                    <input type="number" name="report_retention_days" value="{{ report_retention_days }}" min="0" class="form-input" style="max-width:110px;"> days
+                </label>
+                <button type="submit" class="btn-add">Save report retention</button>
+            </form>
+            <p class="section-desc" style="margin-top:6px;"><code>0</code> = keep forever. Older report files are auto-deleted once a day by the dashboard's background job.</p>
+
             {% if reports %}
             <table>
-                <thead><tr><th>Date</th><th>File</th><th>Size</th><th>Generated</th><th>Download</th></tr></thead>
+                <thead><tr><th>Date</th><th>File</th><th>Size</th><th>Generated</th><th>Actions</th></tr></thead>
                 <tbody>
                     {% for r in reports %}
                     <tr>
@@ -189,11 +198,21 @@
                         <td class="mono">{{ r.name }}</td>
                         <td>{{ r.size_kb }} KB</td>
                         <td class="muted">{{ r.mtime }}</td>
-                        <td><a href="/reports/download/{{ r.name }}" class="btn-export">{{ icon('download') }} JSON</a></td>
+                        <td>
+                            <a href="/reports/download/{{ r.name }}" class="btn-export">{{ icon('download') }} JSON</a>
+                            <form method="POST" action="/reports/delete/{{ r.name }}" class="confirm-form" style="display:inline;"
+                                  data-confirm-message="Permanently delete the report file {{ r.name }}?"
+                                  data-confirm-title="Delete report" data-confirm-ok="Delete" data-confirm-danger="true">
+                                <button type="submit" class="btn-remove">{{ icon('trash') }} Delete</button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+            <div class="table-actions">
+                <a href="/reports/all" target="_blank" class="btn-viewall">{{ icon('expand') }} View all reports</a>
+            </div>
             {% else %}
             <p class="empty">No reports yet — they appear here after the first daily run (or click Generate above).</p>
             {% endif %}

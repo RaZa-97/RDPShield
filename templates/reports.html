@@ -1,0 +1,78 @@
+{% from '_icons.html' import icon %}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% include '_pwa_head.html' %}
+    <title>RDPShield — Daily Reports</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        {% with active='settings' %}{% include '_topbar.html' %}{% endwith %}
+
+        <header>
+            <div>
+                <h1>Daily Reports</h1>
+                <p class="subtitle">Full history of machine-readable JSON report archives.</p>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for category, msg in messages %}
+            <div class="flash flash-{{ category }}">{{ msg }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <div class="section">
+            <h2>{{ icon('log') }} All Reports ({{ reports|length }})</h2>
+            {% if reports %}
+            <table>
+                <thead><tr><th>Date</th><th>File</th><th>Size</th><th>Generated</th><th>Actions</th></tr></thead>
+                <tbody>
+                    {% for r in reports %}
+                    <tr>
+                        <td><strong>{{ r.date }}</strong></td>
+                        <td class="mono">{{ r.name }}</td>
+                        <td>{{ r.size_kb }} KB</td>
+                        <td class="muted">{{ r.mtime }}</td>
+                        <td>
+                            <a href="/reports/download/{{ r.name }}" class="btn-export">{{ icon('download') }} JSON</a>
+                            <form method="POST" action="/reports/delete/{{ r.name }}" class="confirm-form" style="display:inline;"
+                                  data-confirm-message="Permanently delete the report file {{ r.name }}?"
+                                  data-confirm-title="Delete report" data-confirm-ok="Delete" data-confirm-danger="true">
+                                <input type="hidden" name="next" value="/reports/all">
+                                <button type="submit" class="btn-remove">{{ icon('trash') }} Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">No reports yet — they appear here after the first daily run.</p>
+            {% endif %}
+            <div class="table-actions">
+                <a href="/settings" class="btn-viewall">&larr; Back to Settings</a>
+            </div>
+        </div>
+
+        <footer><p>RDPShield v3.4 | Daily Reports</p></footer>
+    </div>
+
+    <div class="modal-overlay" id="confirmModalOverlay">
+        <div class="modal-box">
+            <h3 id="confirmModalTitle">Please confirm</h3>
+            <p id="confirmModalMessage"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+                <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+</body>
+</html>

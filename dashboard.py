@@ -1060,7 +1060,8 @@ def settings_page():
         key_status=settings.key_rotation_status(),
         rotation_interval=settings.rotation_interval_days(),
         rotation_enabled=settings.reminders_enabled(),
-        reports=_list_reports(),
+        reports=_list_reports()[:5],
+        report_retention_days=settings.report_retention_days(),
     )
 
 
@@ -1224,14 +1225,61 @@ def reports_generate():
     return redirect(url_for("settings_page"))
 
 
+def _valid_report_name(name):
+    """True only for our own report filenames (blocks path traversal)."""
+    return ("/" not in name and "\\" not in name
+            and name.startswith("rdpshield_report_") and name.endswith(".json"))
+
+
 @app.route("/reports/download/<name>")
 @auth.admin_required
 def reports_download(name):
     # Only our report files; block path traversal.
-    if ("/" in name or "\\" in name
-            or not name.startswith("rdpshield_report_") or not name.endswith(".json")):
+    if not _valid_report_name(name):
         return "Not found", 404
     return send_from_directory(REPORT_DIR, name, as_attachment=True)
+
+
+@app.route("/reports/delete/<name>", methods=["POST"])
+@auth.admin_required
+def reports_delete(name):
+    if not _valid_report_name(name):
+        return "Not found", 404
+    path = os.path.join(REPORT_DIR, name)
+    try:
+        os.remove(path)
+        _audit("report.delete", name)
+        flash(f"Deleted report {name}.", "success")
+    except FileNotFoundError:
+        flash(f"Report {name} no longer exists.", "error")
+    except OSError as e:
+        flash(f"Couldn't delete {name}: {e}", "error")
+    # A delete from the full-history page returns there; otherwise to Settings.
+    return redirect(_safe_next(url_for("settings_page")))
+
+
+@app.route("/reports/all")
+@auth.admin_required
+def reports_all():
+    """Full daily-report history in its own tab (mirrors the audit 'View all')."""
+    return render_template("reports.html", reports=_list_reports())
+
+
+@app.route("/settings/report_retention", methods=["POST"])
+@auth.admin_required
+def settings_report_retention():
+    try:
+        days = max(0, int(request.form.get("report_retention_days", "0")))
+    except ValueError:
+        days = 0
+    set_setting("report_retention_days", str(days))
+    _audit("settings.report_retention", f"{days} days")
+    if days > 0:
+        flash(f"Report retention set to {days} days — older report files are "
+              f"auto-deleted daily (first run within the hour).", "success")
+    else:
+        flash("Report retention set to keep reports forever.", "success")
+    return redirect(url_for("settings_page"))
 
 
 # --- background reminder: nudge admins to rotate API keys every N days -----
@@ -1299,6 +1347,27 @@ def _maintenance_loop():
                 print(f"[REPORT] Generated daily reports for {yesterday} and {today}.")
         except Exception as e:
             print(f"[REPORT] loop error: {e}")
+
+        # --- Report-file retention (delete report JSONs older than N days) ---
+        try:
+            rdays = settings.report_retention_days()
+            if rdays > 0:
+                cutoff = time.time() - rdays * 86400
+                removed = 0
+                for r in _list_reports():
+                    path = os.path.join(REPORT_DIR, r["name"])
+                    try:
+                        if os.path.getmtime(path) < cutoff:
+                            os.remove(path)
+                            removed += 1
+                    except OSError:
+                        pass
+                if removed:
+                    add_audit("system", "report.retention_purge",
+                              f">{rdays}d removed {removed} report file(s)", "")
+                    print(f"[REPORT] Retention purge removed {removed} report(s) older than {rdays}d.")
+        except Exception as e:
+            print(f"[REPORT] retention error: {e}")
 
         time.sleep(3600)  # re-check hourly
 

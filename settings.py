@@ -72,6 +72,15 @@ def retention_days():
         return 0
 
 
+def report_retention_days():
+    """How long daily JSON report files are kept before auto-deletion.
+    0 = keep forever (default)."""
+    try:
+        return int(_val("report_retention_days") or 0)
+    except (ValueError, TypeError):
+        return 0
+
+
 # --- API key rotation reminders -----------------------------------------
 # We reminder-nudge every `interval` days (SMS + dashboard) so keys get rotated
 # regularly. Per-key "last rotated" = the settings-row updated_at written when a
