@@ -34,6 +34,32 @@ access to any page or API.
 The first admin created is the **root admin** (`is_root`) and has extra
 protections (Section 6).
 
+### Who can manage whom
+User management is **admin-only** (guests have no access at all). Among admins,
+changes to *other* users are constrained:
+
+| Actor | May change credentials / MFA of |
+|---|---|
+| **root** admin | **anyone** — and **only root** can change the **root** account |
+| **admin** (non-root) | **itself** and **guest** users only — *not* other admins, *not* root |
+| **guest** | nobody |
+
+Only the **root** admin can **create admin accounts**; ordinary admins create
+guests only (so a non-root admin can't mint admins it isn't allowed to manage).
+
+### New users must verify their phone (SMS)
+A user created from the console starts **Pending**: a **mobile number is
+required**, a **6-digit code** is texted to it, and the user must enter it at
+**`/verify`** before their first sign-in. **Login refuses an unverified account.**
+An admin can **Resend code** from the Users page; codes expire in **30 minutes**.
+
+### Credential / MFA changes re-verify the user
+When an admin (or root) changes a user's **password** or **resets their MFA**, the
+affected user is **re-gated**: a fresh code is texted and they must re-verify at
+`/verify` before signing in again (*lock-until-verified*). Self-changes are gated
+too, but **skipped when the account has no phone** — so the seeded root can never
+lock itself out of its own console.
+
 ---
 
 ## 2. Password policy
@@ -131,6 +157,10 @@ never be fully locked out:
   **warning** but does not lock it.
 - **Cannot be deleted or disabled by a secondary admin** (UI hides the actions
   and the backend enforces it).
+- **Only root changes the root account.** A secondary admin cannot change the
+  root admin's password or MFA — closing the gap where any admin could take over
+  root.
+- **Only root creates admin accounts** (ordinary admins create guests only).
 - You also **can't delete/disable yourself** or the **last remaining admin**.
 
 Lost the root admin's phone? Another admin can **Reset MFA** for any user from

@@ -43,7 +43,7 @@ monitoring, geographic access control, and a YARA scan controller.
 - **YARA scanning** — automatic disk scan on block + on-demand memory scanning for post-compromise indicators, with false-positive suppression
 - **SMS alerts** — real-time notifications via [Notify.lk]
 - **Live SOC dashboard** — Flask + Chart.js: failed-login trend, alert breakdown, top attacker countries, blocked-IP management
-- **Authenticated access** — password + **TOTP two-factor** login, admin/guest **roles**, CSRF protection, and temporary account lockouts with **SMS self-unlock** recovery (see [`SECURITY.md`](SECURITY.md))
+- **Authenticated access** — password + **TOTP two-factor** login, admin/guest **roles** with fine-grained RBAC (only root manages root/admins), **SMS phone-verification** for new users and credential changes (lock-until-verified), CSRF protection, and temporary account lockouts with **SMS self-unlock** recovery (see [`SECURITY.md`](SECURITY.md))
 
 ---
 

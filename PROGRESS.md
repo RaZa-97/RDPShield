@@ -332,7 +332,9 @@ Both risky modes have dashboard guards: Apply button disabled when whitelist is 
 - Run Disk/Memory Scan (admin); live status card (polls `/yara/status`); Scan History (preview + View all); Findings panel; Managed Findings categories. Actions admin-only.
 
 ### `/users` — User Management (admin)
-- Add user (username/password/phone/role); Edit (reset pw / set phone); Disable/Enable; Reset MFA; Delete. Root-admin protections.
+- Add user (username/password/**phone required**/role); Edit (reset pw / set phone); Disable/Enable; Reset MFA; Delete; **Resend code**. Root-admin protections.
+- **Phone-ownership verification (2026-06-30):** new users are created *Pending* — a 6-digit code is SMS'd and they must verify at `/verify` before first login (login refuses unverified). Admin/root password or MFA changes **re-gate** the affected user with a fresh code (*lock-until-verified*); self-changes gated too but skipped if no phone (root can't self-lock).
+- **RBAC `_can_manage(actor,target)`:** root → anyone (and **only root changes the root account**); non-root admin → self + **guests only** (not other admins/root); guests have no access. **Only root creates admin accounts.** New `users` columns `verified`/`verify_code_hash`/`verify_expires`/`verify_purpose` (existing users migrate `verified=1`); template `verify.html`. See `SECURITY.md` §1, §6.
 
 ### `/settings` — Settings (admin)
 - API key rotation (DB-backed, overrides config.py) + rotation reminders; Alert Recipients (SMS); SMS alert-type toggles; Data Retention (daily auto-purge + Purge now); Daily Reports (list/generate/download); Admin Audit Log; theme.

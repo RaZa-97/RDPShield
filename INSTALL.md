@@ -164,9 +164,19 @@ http://localhost:5000
    (There is **no** fixed `admin/admin` default — copy the printed password.)
 2. Log in → you'll be asked to **set up two-factor**: scan the QR with Google
    Authenticator / Authy (or type the shown secret), enter the 6-digit code.
+   (The seeded root admin is pre-verified, so it isn't gated by SMS.)
 3. Go to **Users** and **change the admin password** (minimum **12 characters**),
-   then add real users. **Set a phone number on each account** so password reset
-   and account-unlock by SMS will work (see `SECURITY.md`).
+   then add real users.
+
+**Adding users (SMS verification):** every new user **requires a mobile number** —
+on creation a **6-digit code is texted** to it and the user must enter it at
+**`/verify`** before their first sign-in (login refuses an unverified account; an
+admin can **Resend code**). Likewise, when an admin/root **changes a user's
+password or resets their MFA**, that user is re-gated and must verify a fresh code.
+This means **Notify.lk SMS must be working** for user onboarding — configure it in
+**Settings** first. Role rules: only the **root** admin can create admin accounts
+or change the root account; a non-root admin manages only itself and guests. Full
+model in `SECURITY.md` §1 and §6.
 
 Press `Ctrl+C` in both terminals to stop the test once it works.
 
