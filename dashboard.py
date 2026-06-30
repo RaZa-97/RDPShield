@@ -180,7 +180,8 @@ def _safe_next(default=None):
 
 # Endpoints reachable WITHOUT a full login (the auth flow itself + assets).
 PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "forgot", "reset",
-                    "unlock", "unlock_verify", "service_worker", "static"}
+                    "unlock", "unlock_verify", "verify_account",
+                    "service_worker", "static"}
 
 
 @app.before_request
@@ -219,7 +220,8 @@ def require_login():
 # exempt — they run before/around session establishment and SameSite=Lax
 # already covers login CSRF.
 CSRF_EXEMPT = {"login", "mfa", "logout", "forgot", "reset",
-               "unlock", "unlock_verify", "service_worker", "static"}
+               "unlock", "unlock_verify", "verify_account",
+               "service_worker", "static"}
 
 
 def _ensure_csrf_token():
