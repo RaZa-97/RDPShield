@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Central — Customers</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='central.css') }}">
+</head>
+<body>
+{% include 'central_topbar.html' %}
+{% from '_icons.html' import icon %}
+
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash flash-{{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <header>
+        <div>
+            <h1>Customers</h1>
+            <p class="subtitle">Each customer owns one or more protected servers (agents).</p>
+        </div>
+    </header>
+
+    <div class="panel">
+        <h2>{{ icon('key') }} Add a customer</h2>
+        <form method="POST" action="{{ url_for('customers_add') }}" class="inline-form">
+            <input class="form-input" type="text" name="name" placeholder="Customer name" required>
+            <input class="form-input" type="email" name="contact_email" placeholder="Contact email (optional)">
+            <input class="form-input" type="text" name="notes" placeholder="Notes (optional)">
+            <button type="submit" class="btn-add">Add customer</button>
+        </form>
+    </div>
+
+    <div class="panel">
+        <h2>{{ icon('globe') }} All customers</h2>
+        {% if customers %}
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Contact</th>
+                    <th>Agents</th>
+                    <th>Since</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for c in customers %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('customer_page', customer_id=c.id) }}" class="agent-name">{{ c.name }}</a>
+                        {% if c.notes %}<span class="agent-sub">{{ c.notes }}</span>{% endif %}
+                    </td>
+                    <td class="metric-muted">{{ c.contact_email or '—' }}</td>
+                    <td class="metric">{{ c.agent_count }}</td>
+                    <td class="metric-muted">{{ (c.created_at or '')[:10] }}</td>
+                    <td class="row-actions">
+                        <a href="{{ url_for('customer_page', customer_id=c.id) }}" class="btn-sm">View</a>
+                        <form method="POST" action="{{ url_for('customers_delete', customer_id=c.id) }}"
+                              class="confirm-form" style="display:inline;"
+                              data-confirm-title="Delete customer"
+                              data-confirm-message="Delete '{{ c.name }}'? This also removes their {{ c.agent_count }} enrolled agent(s) and any operator accounts scoped to them. The customers' own dashboards and data are untouched."
+                              data-confirm-ok="Delete customer"
+                              data-confirm-danger="true">
+                            <input type="hidden" name="confirm_agents" value="{{ c.agent_count }}">
+                            <button type="submit" class="btn-remove">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <h3>No customers yet</h3>
+            <p>Add one above, then enrol their servers from <a href="{{ url_for('agents_page') }}">Agents</a>.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal-overlay" id="confirmModalOverlay">
+  <div class="modal-box">
+    <h3 id="confirmModalTitle"></h3>
+    <p id="confirmModalMessage"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+      <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+</body>
+</html>

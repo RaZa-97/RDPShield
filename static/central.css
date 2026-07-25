@@ -1,0 +1,253 @@
+/* =========================================================================
+   RDPShield Central — command-centre additions
+   =========================================================================
+   Loaded AFTER static/style.css and adds only what Central needs. It defines
+   no colours of its own: every value below resolves through the existing CSS
+   custom properties, so Central inherits both the light `:root` theme and the
+   `[data-theme="dark"]` override for free and can never drift from the
+   per-instance dashboard's look.
+   ========================================================================= */
+
+/* Brand mark that distinguishes Central from an instance console at a glance */
+.central-mark {
+    font-size: 0.62em;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    vertical-align: middle;
+    padding: 3px 7px;
+    margin-left: 6px;
+    border-radius: 5px;
+    background: var(--brand);
+    color: #fff;
+}
+
+/* Which customer a scoped operator is pinned to */
+.tenant-chip {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.78em;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    background: rgba(47, 95, 224, 0.12);
+    color: var(--brand);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+/* ---------- Stat tiles -------------------------------------------------- */
+/* Denser than the instance dashboard's 4-up grid: an ops console shows more
+   counters at once, and they must stay readable when a screen is narrow. */
+.tile-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    margin-bottom: 22px;
+}
+
+.tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    transition: transform 0.15s, border-color 0.15s;
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+
+.tile:hover { transform: translateY(-2px); }
+
+/* Tiles that filter the table below are clickable; say so. */
+a.tile { cursor: pointer; }
+a.tile:hover { border-color: var(--brand); }
+
+.tile-label {
+    font-size: 0.72em;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--muted);
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.tile-number {
+    font-size: 1.9em;
+    font-weight: 700;
+    margin-top: 8px;
+    color: var(--text);
+    line-height: 1;
+}
+
+/* A tile only takes on an alarm colour when its count is non-zero, so a
+   healthy fleet is visually calm and a real problem stands out. */
+.tile.alarm .tile-number { color: var(--critical); }
+.tile.warn  .tile-number { color: var(--high); }
+.tile.good  .tile-number { color: var(--ok); }
+
+/* ---------- Status + risk pills ---------------------------------------- */
+.pill {
+    display: inline-block;
+    padding: 3px 11px;
+    border-radius: 20px;
+    font-size: 0.74em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+}
+
+.pill-online   { background: rgba(22, 163, 74, 0.12);  color: var(--ok); }
+.pill-offline  { background: rgba(220, 38, 38, 0.10);  color: var(--critical); }
+.pill-pending  { background: rgba(107, 118, 134, 0.14); color: var(--muted); }
+
+.risk-critical { background: rgba(220, 38, 38, 0.12);  color: var(--critical); }
+.risk-high     { background: rgba(234, 88, 12, 0.12);  color: var(--high); }
+.risk-medium   { background: rgba(217, 119, 6, 0.12);  color: #d97706; }
+.risk-low      { background: rgba(22, 163, 74, 0.10);  color: var(--ok); }
+.risk-unknown  { background: rgba(107, 118, 134, 0.14); color: var(--muted); }
+
+/* A live status dot next to the pill, echoing the top bar's LIVE indicator */
+.status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.status-dot.online  { background: var(--ok); animation: pulse 1.6s infinite; }
+.status-dot.offline { background: var(--critical); }
+.status-dot.pending { background: var(--muted); }
+
+/* ---------- Filter bar -------------------------------------------------- */
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin: 4px 0 14px;
+}
+
+.filter-bar .form-input { margin: 0; max-width: 280px; }
+
+.filter-chip {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.8em;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.filter-chip:hover { border-color: var(--brand); color: var(--text); }
+.filter-chip.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+.filter-count {
+    margin-left: auto;
+    font-size: 0.84em;
+    color: var(--muted);
+}
+
+/* ---------- Agents table ------------------------------------------------ */
+/* The table is the densest thing on the page, so give it its own horizontal
+   scroll container rather than letting it push the page sideways (the same fix
+   the instance dashboard's responsive pass applied to its wide tables). */
+.table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.agents-table { min-width: 880px; }
+
+.agents-table td { vertical-align: middle; }
+
+.agent-name {
+    font-weight: 700;
+    color: var(--text);
+    display: block;
+}
+
+.agent-sub {
+    font-size: 0.85em;
+    color: var(--muted);
+    display: block;
+    margin-top: 2px;
+}
+
+.metric { font-variant-numeric: tabular-nums; font-weight: 600; }
+.metric-muted { color: var(--muted); font-weight: 400; }
+
+.row-actions { white-space: nowrap; text-align: right; }
+
+/* "Open Dashboard" — the SSO click-through. Visually the primary row action. */
+.btn-open {
+    padding: 5px 13px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--brand);
+    color: #fff;
+    text-decoration: none;
+    display: inline-block;
+}
+.btn-open:hover { background: var(--brand-dark); }
+.btn-open[disabled],
+.btn-open.disabled {
+    background: var(--border);
+    color: var(--muted);
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 42px 20px;
+    color: var(--muted);
+}
+.empty-state h3 { color: var(--text); margin-bottom: 8px; font-size: 1.05em; }
+.empty-state code {
+    background: var(--surface-alt, rgba(127,127,127,.12));
+    padding: 2px 8px;
+    border-radius: 5px;
+}
+
+/* One-time secret reveal after enrolling an agent. Deliberately loud: this is
+   the only moment the API key is ever visible. */
+.secret-reveal {
+    border: 1px solid var(--high);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+    background: rgba(234, 88, 12, 0.07);
+}
+.secret-reveal h3 { color: var(--high); font-size: 1em; margin-bottom: 8px; }
+.secret-reveal code {
+    display: block;
+    word-break: break-all;
+    font-size: 0.95em;
+    padding: 10px 12px;
+    margin: 10px 0;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+/* ---------- Responsive -------------------------------------------------- */
+@media (max-width: 1200px) {
+    .tile-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 768px) {
+    .tile-grid { grid-template-columns: repeat(2, 1fr); }
+    .tile-number { font-size: 1.6em; }
+    .filter-bar .form-input { max-width: 100%; flex: 1 1 100%; }
+    .filter-count { margin-left: 0; flex: 1 1 100%; }
+    .tenant-chip { display: none; }
+}

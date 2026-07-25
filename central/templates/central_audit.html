@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Central — Audit</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='central.css') }}">
+</head>
+<body>
+{% include 'central_topbar.html' %}
+{% from '_icons.html' import icon %}
+
+<div class="container">
+    <header>
+        <div>
+            <h1>Audit Log</h1>
+            <p class="subtitle">
+                Every Central sign-in, tenancy change, enrolment, key rotation and SSO
+                click-through. API keys and SSO tokens are never recorded — only the
+                fact that one was issued, and its <code>jti</code>.
+            </p>
+        </div>
+    </header>
+
+    <div class="panel">
+        <h2>{{ icon('audit') }} Recent activity</h2>
+        {% if rows %}
+        <div class="filter-bar">
+            <input class="form-input" type="search" id="auditSearch"
+                   placeholder="Search action, operator or detail…" autocomplete="off">
+            <span class="filter-count" id="auditCount"></span>
+        </div>
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time (UTC)</th>
+                    <th>Operator</th>
+                    <th>Action</th>
+                    <th>Detail</th>
+                    <th>Source IP</th>
+                </tr>
+            </thead>
+            <tbody id="auditRows">
+            {% for r in rows %}
+                <tr data-search="{{ ((r.username or '') ~ ' ' ~ (r.action or '') ~ ' ' ~ (r.detail or ''))|lower }}">
+                    <td class="metric-muted">{{ r.timestamp }}</td>
+                    <td>{{ r.username }}</td>
+                    <td><code>{{ r.action }}</code></td>
+                    <td class="metric-muted">{{ r.detail }}</td>
+                    <td class="metric-muted">{{ r.ip or '—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><h3>Nothing logged yet</h3></div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function () {
+    const rows = Array.from(document.querySelectorAll('#auditRows tr'));
+    if (!rows.length) return;
+    const search = document.getElementById('auditSearch');
+    const count = document.getElementById('auditCount');
+    function apply() {
+        const q = (search.value || '').trim().toLowerCase();
+        let shown = 0;
+        rows.forEach(row => {
+            const ok = !q || row.dataset.search.includes(q);
+            row.style.display = ok ? '' : 'none';
+            if (ok) shown++;
+        });
+        count.textContent = shown + ' of ' + rows.length + ' entries';
+    }
+    search.addEventListener('input', apply);
+    apply();
+})();
+</script>
+</body>
+</html>

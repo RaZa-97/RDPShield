@@ -1,0 +1,80 @@
+{% from '_icons.html' import icon %}
+<!-- Central's operations top bar. Mirrors the instance dashboard's _topbar.html
+     so the two consoles feel like one product, but the nav is tenancy-aware:
+     customer/agent management is superadmin-only. Expects `active` in context;
+     `current_user`, `is_superadmin` and `login_at` come from the context
+     processor in central_app.py. -->
+<script>
+    window.IS_SUPERADMIN = {{ 'true' if is_superadmin else 'false' }};
+    window.LOGIN_AT = "{{ login_at or '' }}";
+    window.CSRF_TOKEN = "{{ csrf_token }}";
+</script>
+<script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
+
+<nav class="topbar">
+    <a href="{{ url_for('overview') }}" class="nav-brand">
+        <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+        RDPShield <span class="central-mark">CENTRAL</span>
+    </a>
+
+    <div class="topbar-right">
+        <span class="live-pill"><span class="live-dot"></span>LIVE</span>
+        <span class="topbar-clock" id="topbarClock">--:--:-- UTC</span>
+        {% if current_user %}
+        {% if not is_superadmin %}
+        <span class="tenant-chip" title="Your account is scoped to this customer">
+            {{ current_user.customer_name or 'Unscoped' }}
+        </span>
+        {% endif %}
+        <form method="POST" action="{{ url_for('set_theme', mode='light' if theme == 'dark' else 'dark') }}" class="theme-toggle-form">
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <button type="submit" class="btn-theme" title="Switch to {{ 'light' if theme == 'dark' else 'dark' }} theme">
+                {{ '☀' if theme == 'dark' else '☾' }}
+            </button>
+        </form>
+        <div class="user-chip" title="Signed in as {{ current_user.username }} ({{ current_user.role }})">
+            <span class="user-avatar {% if is_superadmin %}avatar-admin{% else %}avatar-guest{% endif %}">{{ current_user.username[:2]|upper }}</span>
+            <span class="user-meta">
+                <span class="user-name">{{ current_user.username }}</span>
+                <span class="user-role">{{ current_user.role|replace('_',' ')|upper }} &middot; active <span id="activeTime">00:00:00</span></span>
+            </span>
+        </div>
+        <a href="{{ url_for('logout') }}" class="btn-logout" title="Sign out">Sign out</a>
+        {% endif %}
+    </div>
+</nav>
+
+<div class="subnav">
+    <a href="{{ url_for('overview') }}" class="nav-link {% if active=='overview' %}active{% endif %}">Overview</a>
+    {% if is_superadmin %}
+    <a href="{{ url_for('customers_page') }}" class="nav-link {% if active=='customers' %}active{% endif %}">Customers</a>
+    <a href="{{ url_for('agents_page') }}" class="nav-link {% if active=='agents' %}active{% endif %}">Agents</a>
+    <a href="{{ url_for('users_page') }}" class="nav-link {% if active=='users' %}active{% endif %}">Operators</a>
+    <a href="{{ url_for('audit_page') }}" class="nav-link {% if active=='audit' %}active{% endif %}">Audit</a>
+    {% endif %}
+</div>
+
+<script>
+    // UTC clock + live "active" session timer, identical to the instance console.
+    (function () {
+        const clock = document.getElementById('topbarClock');
+        const active = document.getElementById('activeTime');
+        const loginAt = window.LOGIN_AT ? new Date(window.LOGIN_AT) : null;
+        function pad(n) { return String(n).padStart(2, '0'); }
+        function tick() {
+            const now = new Date();
+            if (clock) {
+                clock.textContent = pad(now.getUTCHours()) + ':' + pad(now.getUTCMinutes())
+                    + ':' + pad(now.getUTCSeconds()) + ' UTC';
+            }
+            if (active && loginAt) {
+                let s = Math.max(0, Math.floor((now - loginAt) / 1000));
+                const h = Math.floor(s / 3600); s -= h * 3600;
+                const m = Math.floor(s / 60); s -= m * 60;
+                active.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
+            }
+        }
+        tick();
+        setInterval(tick, 1000);
+    })();
+</script>

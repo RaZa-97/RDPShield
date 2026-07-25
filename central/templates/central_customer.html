@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Central — {{ customer.name }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='central.css') }}">
+</head>
+<body>
+{% include 'central_topbar.html' %}
+{% from '_icons.html' import icon %}
+
+<div class="container">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash flash-{{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <header>
+        <div>
+            {% if is_superadmin %}
+            <a href="{{ url_for('overview') }}" class="btn-back">&larr; All customers</a>
+            {% endif %}
+            <h1>{{ customer.name }}</h1>
+            <p class="subtitle">
+                {% if customer.contact_email %}{{ customer.contact_email }} &middot; {% endif %}
+                {{ agents|length }} protected server{{ '' if agents|length == 1 else 's' }}
+                &middot; customer since {{ (customer.created_at or '')[:10] }}
+            </p>
+        </div>
+    </header>
+
+    {% if customer.notes %}
+    <p class="section-desc">{{ customer.notes }}</p>
+    {% endif %}
+
+    <!-- Same tiles as the fleet overview, scoped to this one customer. -->
+    <div class="tile-grid">
+        <a class="tile" href="#" data-filter="all">
+            <div class="tile-label">Agents</div>
+            <div class="tile-number">{{ tiles.agents }}</div>
+        </a>
+        <a class="tile {% if tiles.online %}good{% endif %}" href="#" data-filter="online">
+            <div class="tile-label">Online</div>
+            <div class="tile-number">{{ tiles.online }}</div>
+        </a>
+        <a class="tile {% if tiles.offline %}alarm{% endif %}" href="#" data-filter="offline">
+            <div class="tile-label">Offline</div>
+            <div class="tile-number">{{ tiles.offline }}</div>
+        </a>
+        <a class="tile {% if tiles.high_risk %}alarm{% endif %}" href="#" data-filter="risk">
+            <div class="tile-label">High-Risk Alerts</div>
+            <div class="tile-number">{{ tiles.high_risk }}</div>
+        </a>
+        <a class="tile {% if tiles.unhealthy %}warn{% endif %}" href="#" data-filter="all">
+            <div class="tile-label">Detector Unhealthy</div>
+            <div class="tile-number">{{ tiles.unhealthy }}</div>
+        </a>
+        <a class="tile {% if tiles.pending %}warn{% endif %}" href="#" data-filter="pending">
+            <div class="tile-label">Pending Enrolment</div>
+            <div class="tile-number">{{ tiles.pending }}</div>
+        </a>
+    </div>
+
+    <div class="panel">
+        <h2>{{ icon('globe') }} {{ customer.name }} — Servers</h2>
+
+        {% if agents %}
+        <div class="filter-bar">
+            <input class="form-input" type="search" id="agentSearch"
+                   placeholder="Search name or host…" autocomplete="off">
+            <button type="button" class="filter-chip active" data-filter="all">All</button>
+            <button type="button" class="filter-chip" data-filter="online">Online</button>
+            <button type="button" class="filter-chip" data-filter="offline">Offline</button>
+            <button type="button" class="filter-chip" data-filter="risk">At risk</button>
+            <button type="button" class="filter-chip" data-filter="pending">Pending</button>
+            <span class="filter-count" id="filterCount"></span>
+        </div>
+
+        <div class="table-scroll">
+        <table class="agents-table">
+            <thead>
+                <tr>
+                    <th>Server</th>
+                    <th>Status</th>
+                    <th>Risk</th>
+                    <th>Alerts 24h</th>
+                    <th>Failed 24h</th>
+                    <th>Blocked</th>
+                    <th>Threat</th>
+                    <th>Top alert</th>
+                    <th>Version</th>
+                    <th>Last check-in</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="agentRows">
+            {% for a in agents %}
+                <tr data-status="{{ a.status }}"
+                    data-risk="{{ a.risk_level }}"
+                    data-search="{{ (a.name ~ ' ' ~ (a.hostname or ''))|lower }}">
+                    <td>
+                        <span class="agent-name">{{ a.name }}</span>
+                        <span class="agent-sub">{{ a.hostname or a.agent_uid }}</span>
+                    </td>
+                    <td>
+                        <span class="status-dot {{ a.status }}"></span>
+                        <span class="pill pill-{{ a.status }}">{{ a.status }}</span>
+                    </td>
+                    <td><span class="pill risk-{{ a.risk_level }}">{{ a.risk_level }}</span></td>
+                    <td class="metric">{{ a.alerts_24h if a.alerts_24h is not none else '—' }}</td>
+                    <td class="metric">{{ a.failed_logins_24h if a.failed_logins_24h is not none else '—' }}</td>
+                    <td class="metric">{{ a.blocked_ips_active if a.blocked_ips_active is not none else '—' }}</td>
+                    <td class="metric">
+                        {% if a.max_threat_score is not none %}{{ a.max_threat_score }}
+                        {% else %}<span class="metric-muted">n/a</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if a.top_alert_type %}
+                        <span class="badge badge-{{ a.top_alert_type }}">{{ a.top_alert_type }}</span>
+                        {% else %}<span class="metric-muted">—</span>{% endif %}
+                    </td>
+                    <td class="metric-muted">{{ a.agent_version or '—' }}</td>
+                    <td class="metric-muted" data-lastseen="{{ a.last_seen or '' }}">
+                        {{ a.last_seen or 'never' }}
+                    </td>
+                    <td class="row-actions">
+                        {% if a.dashboard_url %}
+                        <form method="POST" action="{{ url_for('open_agent', agent_uid=a.agent_uid) }}"
+                              target="_blank" style="display:inline;">
+                            <button type="submit" class="btn-open">Open Dashboard</button>
+                        </form>
+                        {% else %}
+                        <span class="btn-open disabled" title="No dashboard URL recorded">Open Dashboard</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <h3>No servers enrolled for {{ customer.name }}</h3>
+            {% if is_superadmin %}
+            <p>Enrol one from <a href="{{ url_for('agents_page') }}">Agents</a>.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+// Shared with the overview page: filter/search purely over data- attributes.
+(function () {
+    const rows = Array.from(document.querySelectorAll('#agentRows tr'));
+    if (!rows.length) return;
+    const search = document.getElementById('agentSearch');
+    const count = document.getElementById('filterCount');
+    const chips = Array.from(document.querySelectorAll('.filter-chip'));
+    let mode = 'all';
+
+    function matchesMode(row) {
+        const status = row.dataset.status, risk = row.dataset.risk;
+        if (mode === 'all') return true;
+        if (mode === 'risk') return status === 'online' && (risk === 'high' || risk === 'critical');
+        return status === mode;
+    }
+    function apply() {
+        const q = (search.value || '').trim().toLowerCase();
+        let shown = 0;
+        rows.forEach(row => {
+            const ok = matchesMode(row) && (!q || row.dataset.search.includes(q));
+            row.style.display = ok ? '' : 'none';
+            if (ok) shown++;
+        });
+        count.textContent = shown + ' of ' + rows.length + ' server' + (rows.length === 1 ? '' : 's');
+    }
+    function setMode(next) {
+        mode = next;
+        chips.forEach(c => c.classList.toggle('active', c.dataset.filter === mode));
+        apply();
+    }
+    chips.forEach(c => c.addEventListener('click', () => setMode(c.dataset.filter)));
+    document.querySelectorAll('a.tile[data-filter]').forEach(t => {
+        t.addEventListener('click', e => { e.preventDefault(); setMode(t.dataset.filter); });
+    });
+    search.addEventListener('input', apply);
+    apply();
+})();
+
+(function () {
+    document.querySelectorAll('[data-lastseen]').forEach(td => {
+        const raw = td.dataset.lastseen;
+        if (!raw) return;
+        const then = new Date(raw.replace(' ', 'T') + 'Z');
+        if (isNaN(then)) return;
+        const secs = Math.max(0, (Date.now() - then.getTime()) / 1000);
+        let text;
+        if (secs < 60) text = Math.floor(secs) + 's ago';
+        else if (secs < 3600) text = Math.floor(secs / 60) + 'm ago';
+        else if (secs < 86400) text = Math.floor(secs / 3600) + 'h ago';
+        else text = Math.floor(secs / 86400) + 'd ago';
+        td.textContent = text;
+        td.title = raw + ' UTC';
+    });
+})();
+</script>
+</body>
+</html>

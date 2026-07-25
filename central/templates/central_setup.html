@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Central — First-run setup</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='central.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+            <div>
+                <div class="auth-title">RDPSHIELD <span class="central-mark">CENTRAL</span></div>
+                <div class="auth-tag">Multi-Tenant Command Center</div>
+            </div>
+        </div>
+
+        <div class="auth-step">STEP 00 / FIRST-RUN SETUP</div>
+        <h1 class="auth-h1">Create the superadmin</h1>
+        <p class="auth-sub">This Central has no accounts yet. Create the first
+           <strong>superadmin</strong> — the only role that can add customers and enrol
+           agents. You'll enrol MFA on your first sign-in.</p>
+
+        {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+
+        {% if not local_only %}
+        <form method="POST" action="{{ url_for('setup') }}" class="auth-form">
+            <label class="auth-label" for="username">Superadmin username</label>
+            <input class="form-input auth-input" type="text" id="username" name="username"
+                   autocomplete="username" autofocus required>
+
+            <label class="auth-label" for="password">Password</label>
+            <input class="form-input auth-input" type="password" id="password" name="password"
+                   autocomplete="new-password" required>
+
+            <label class="auth-label" for="confirm">Confirm password</label>
+            <input class="form-input auth-input" type="password" id="confirm" name="confirm"
+                   autocomplete="new-password" required>
+
+            <button type="submit" class="btn-apply auth-submit">Create superadmin &amp; continue &rarr;</button>
+        </form>
+        {% endif %}
+
+        <div class="auth-foot"><span class="live-dot"></span> one-time setup — local access only</div>
+    </div>
+</body>
+</html>

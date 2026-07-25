@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Central — Agents</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='central.css') }}">
+</head>
+<body>
+{% include 'central_topbar.html' %}
+{% from '_icons.html' import icon %}
+
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash flash-{{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <header>
+        <div>
+            <h1>Agents</h1>
+            <p class="subtitle">One agent = one RDPShield instance = one protected server.</p>
+        </div>
+    </header>
+
+    {% if new_secret %}
+    <!-- Shown exactly once. Central stores only a hash of this key, so it can
+         never be displayed again — only rotated. -->
+    <div class="secret-reveal">
+        <h3>{{ icon('key') }}
+            {% if new_secret.rotated %}New key for{% else %}Enrolled{% endif %}
+            &ldquo;{{ new_secret.name }}&rdquo; — copy this now
+        </h3>
+        <p class="section-desc" style="margin-bottom:6px;">
+            This is the only time this key is shown. Central keeps only a hash of it.
+            Add the following to that server's <code>config.py</code>, then restart its dashboard:
+        </p>
+<code>CENTRAL_MANAGED    = True
+CENTRAL_URL        = "{{ new_secret.central_url }}"
+CENTRAL_AGENT_ID   = "{{ new_secret.agent_uid }}"
+CENTRAL_API_KEY    = "{{ new_secret.api_key }}"
+CENTRAL_SSO_PUBLIC_KEY = "&lt;paste the JWK from central_keygen.py&gt;"</code>
+        <p class="section-desc" style="margin-bottom:0;">
+            Leave <code>CENTRAL_MANAGED = False</code> if you only want reporting without
+            moving that instance's login to Central — see CENTRAL.md.
+        </p>
+    </div>
+    {% endif %}
+
+    <div class="panel">
+        <h2>{{ icon('key') }} Enrol a server</h2>
+        <p class="section-desc">
+            Enrolling generates an <code>agent_uid</code> and a one-time API key for that
+            instance. Central never connects out to the server — the agent phones home,
+            so no inbound access to the customer's network is needed.
+        </p>
+        {% if customers %}
+        <form method="POST" action="{{ url_for('agents_enroll') }}" class="inline-form">
+            <select class="form-input" name="customer_id" required>
+                <option value="">Customer…</option>
+                {% for c in customers %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+            </select>
+            <input class="form-input" type="text" name="name" placeholder="Server name" required>
+            <input class="form-input" type="text" name="hostname" placeholder="Hostname (optional)">
+            <input class="form-input" type="url" name="dashboard_url"
+                   placeholder="https://server:5000 (for Open Dashboard)">
+            <button type="submit" class="btn-add">Enrol agent</button>
+        </form>
+        {% else %}
+        <p class="section-desc">
+            Add a <a href="{{ url_for('customers_page') }}">customer</a> first.
+        </p>
+        {% endif %}
+    </div>
+
+    <div class="panel">
+        <h2>{{ icon('globe') }} Enrolled agents</h2>
+        {% if agents %}
+        <div class="table-scroll">
+        <table class="agents-table">
+            <thead>
+                <tr>
+                    <th>Server</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Agent ID</th>
+                    <th>Dashboard URL</th>
+                    <th>Version</th>
+                    <th>Last check-in</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for a in agents %}
+                <tr>
+                    <td>
+                        <span class="agent-name">{{ a.name }}</span>
+                        <span class="agent-sub">{{ a.hostname or '—' }}</span>
+                    </td>
+                    <td><a href="{{ url_for('customer_page', customer_id=a.customer_id) }}">{{ a.customer_name }}</a></td>
+                    <td>
+                        <span class="status-dot {{ a.status }}"></span>
+                        <span class="pill pill-{{ a.status }}">{{ a.status }}</span>
+                    </td>
+                    <td><code class="agent-sub">{{ a.agent_uid }}</code></td>
+                    <td class="metric-muted">{{ a.dashboard_url or '—' }}</td>
+                    <td class="metric-muted">{{ a.agent_version or '—' }}</td>
+                    <td class="metric-muted" data-lastseen="{{ a.last_seen or '' }}">{{ a.last_seen or 'never' }}</td>
+                    <td class="row-actions">
+                        <form method="POST" action="{{ url_for('agents_rotate', agent_uid=a.agent_uid) }}"
+                              class="confirm-form" style="display:inline;"
+                              data-confirm-title="Rotate API key"
+                              data-confirm-message="Issue a new API key for '{{ a.name }}'? The old key stops working immediately and this agent will fail to check in until the new one is installed in its config.py."
+                              data-confirm-ok="Rotate key">
+                            <button type="submit" class="btn-sm">Rotate key</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('agents_delete', agent_uid=a.agent_uid) }}"
+                              class="confirm-form" style="display:inline;"
+                              data-confirm-title="Remove agent"
+                              data-confirm-message="Remove '{{ a.name }}' from Central? Its own dashboard, database and firewall rules are untouched — only Central forgets it. Re-enrolling issues a new agent ID and key."
+                              data-confirm-ok="Remove agent"
+                              data-confirm-danger="true">
+                            <button type="submit" class="btn-remove">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <h3>No agents enrolled</h3>
+            <p>Enrol the first server above.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal-overlay" id="confirmModalOverlay">
+  <div class="modal-box">
+    <h3 id="confirmModalTitle"></h3>
+    <p id="confirmModalMessage"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+      <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+<script>
+(function () {
+    document.querySelectorAll('[data-lastseen]').forEach(td => {
+        const raw = td.dataset.lastseen;
+        if (!raw) return;
+        const then = new Date(raw.replace(' ', 'T') + 'Z');
+        if (isNaN(then)) return;
+        const secs = Math.max(0, (Date.now() - then.getTime()) / 1000);
+        let text;
+        if (secs < 60) text = Math.floor(secs) + 's ago';
+        else if (secs < 3600) text = Math.floor(secs / 60) + 'm ago';
+        else if (secs < 86400) text = Math.floor(secs / 3600) + 'h ago';
+        else text = Math.floor(secs / 86400) + 'd ago';
+        td.textContent = text;
+        td.title = raw + ' UTC';
+    });
+})();
+</script>
+</body>
+</html>

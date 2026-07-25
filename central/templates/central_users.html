@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Central — Operators</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='central.css') }}">
+</head>
+<body>
+{% include 'central_topbar.html' %}
+{% from '_icons.html' import icon %}
+
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash flash-{{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <header>
+        <div>
+            <h1>Operators</h1>
+            <p class="subtitle">
+                <strong>Superadmin</strong> sees every customer.
+                <strong>Customer admin</strong> is locked to one customer — that scope comes
+                from their account, never from the page they request.
+            </p>
+        </div>
+    </header>
+
+    <div class="panel">
+        <h2>{{ icon('lock') }} Add an operator</h2>
+        <form method="POST" action="{{ url_for('users_add') }}" class="inline-form">
+            <input class="form-input" type="text" name="username" placeholder="Username"
+                   autocomplete="off" required>
+            <input class="form-input" type="password" name="password"
+                   placeholder="Password (min 12 chars)" autocomplete="new-password" required>
+            <select class="form-input" name="role" id="roleSelect">
+                <option value="customer_admin">Customer admin</option>
+                <option value="superadmin">Superadmin</option>
+            </select>
+            <select class="form-input" name="customer_id" id="customerSelect">
+                <option value="">Customer…</option>
+                {% for c in customers %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn-add">Add operator</button>
+        </form>
+        <p class="section-desc" style="margin:10px 0 0;">
+            New operators enrol TOTP on their first sign-in.
+        </p>
+    </div>
+
+    <div class="panel">
+        <h2>{{ icon('audit') }} All operators</h2>
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Scope</th>
+                    <th>MFA</th>
+                    <th>State</th>
+                    <th>Last sign-in</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+                <tr>
+                    <td>
+                        <span class="agent-name">{{ u.username }}</span>
+                        {% if u.is_root %}<span class="agent-sub">root superadmin</span>{% endif %}
+                    </td>
+                    <td><span class="pill {% if u.role == 'superadmin' %}risk-high{% else %}risk-low{% endif %}">
+                        {{ u.role|replace('_', ' ') }}</span></td>
+                    <td class="metric-muted">{{ u.customer_name or 'All customers' }}</td>
+                    <td>{% if u.totp_secret %}<span class="pill pill-online">enrolled</span>
+                        {% else %}<span class="pill pill-pending">not set</span>{% endif %}</td>
+                    <td>{% if u.disabled %}<span class="pill pill-offline">disabled</span>
+                        {% else %}<span class="pill pill-online">active</span>{% endif %}</td>
+                    <td class="metric-muted">{{ u.last_login or 'never' }}</td>
+                    <td class="row-actions">
+                        {% if not u.is_root and u.id != current_user.id %}
+                        <form method="POST" action="{{ url_for('users_disable', user_id=u.id) }}" style="display:inline;">
+                            <button type="submit" class="btn-sm">{{ 'Enable' if u.disabled else 'Disable' }}</button>
+                        </form>
+                        {% endif %}
+                        <form method="POST" action="{{ url_for('users_reset_mfa', user_id=u.id) }}"
+                              class="confirm-form" style="display:inline;"
+                              data-confirm-title="Reset MFA"
+                              data-confirm-message="Clear the TOTP secret for '{{ u.username }}'? They will enrol a new authenticator on their next sign-in."
+                              data-confirm-ok="Reset MFA">
+                            <button type="submit" class="btn-sm">Reset MFA</button>
+                        </form>
+                        {% if not u.is_root and u.id != current_user.id %}
+                        <form method="POST" action="{{ url_for('users_delete', user_id=u.id) }}"
+                              class="confirm-form" style="display:inline;"
+                              data-confirm-title="Delete operator"
+                              data-confirm-message="Permanently delete '{{ u.username }}'?"
+                              data-confirm-ok="Delete"
+                              data-confirm-danger="true">
+                            <button type="submit" class="btn-remove">Delete</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="confirmModalOverlay">
+  <div class="modal-box">
+    <h3 id="confirmModalTitle"></h3>
+    <p id="confirmModalMessage"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-modal-cancel" id="confirmModalCancel">Cancel</button>
+      <button type="button" class="btn-modal-ok" id="confirmModalOk">Confirm</button>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+<script>
+// A superadmin has no single customer, so hide the picker when that role is
+// chosen — the backend independently refuses a customer_admin with no scope.
+(function () {
+    const role = document.getElementById('roleSelect');
+    const cust = document.getElementById('customerSelect');
+    function sync() {
+        const scoped = role.value === 'customer_admin';
+        cust.style.display = scoped ? '' : 'none';
+        cust.required = scoped;
+        if (!scoped) cust.value = '';
+    }
+    role.addEventListener('change', sync);
+    sync();
+})();
+</script>
+</body>
+</html>

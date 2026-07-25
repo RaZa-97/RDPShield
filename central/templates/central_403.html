@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDPShield Central — Access denied</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='central.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+            <div>
+                <div class="auth-title">RDPSHIELD <span class="central-mark">CENTRAL</span></div>
+                <div class="auth-tag">Multi-Tenant Command Center</div>
+            </div>
+        </div>
+
+        <div class="auth-step">403 / FORBIDDEN</div>
+        <h1 class="auth-h1">Access denied</h1>
+        <p class="auth-sub">
+            {% if current_user and not is_superadmin %}
+            Your account is scoped to
+            <strong>{{ current_user.customer_name or 'a single customer' }}</strong>.
+            Only a superadmin can manage customers, enrol agents, or view another
+            customer's servers.
+            {% else %}
+            You don't have permission to view that page.
+            {% endif %}
+        </p>
+
+        <a href="{{ url_for('overview') }}" class="btn-apply auth-submit"
+           style="display:block;text-align:center;text-decoration:none;">
+            Back to the overview &rarr;
+        </a>
+
+        <div class="auth-foot"><span class="live-dot"></span> this attempt was logged</div>
+    </div>
+</body>
+</html>

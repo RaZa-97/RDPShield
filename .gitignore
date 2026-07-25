@@ -2,6 +2,21 @@
 config.py
 .flask_secret_key
 
+# RDPShield Central (multi-tenant command centre) secrets + runtime state.
+# central_config.py holds the DB path and TLS paths; the PEM is the SSO signing
+# key, which must never leave the Central host — an instance only ever gets the
+# PUBLIC .jwk.json, which can verify a token but never mint one.
+central/central_config.py
+central/.central_secret_key
+central/central_sso_private.pem
+central/*.pem
+# The public JWK is NOT a secret, but it is generated per deployment and each
+# install makes its own — committing one host's key would just be misleading.
+central/central_sso_public.jwk.json
+central/central.db
+central/central.db-wal
+central/central.db-shm
+
 # Database (runtime data)
 rdpshield.db
 rdpshield.db-wal
