@@ -51,6 +51,29 @@ def _b64url_uint(value):
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
+def _print_instance_line(jwk):
+    """The line an operator pastes into a managed instance's config.py."""
+    print("Add this to every managed instance's config.py as one line:")
+    print()
+    print("    CENTRAL_SSO_PUBLIC_KEY = "
+          + repr(json.dumps(jwk, separators=(",", ":"))))
+    print()
+
+
+def show(pub_path):
+    """Re-print the existing public key. Safe: reads only, changes nothing."""
+    try:
+        with open(pub_path, "r", encoding="utf-8") as fh:
+            jwk = json.load(fh)
+    except FileNotFoundError:
+        sys.exit(f"No public key at {pub_path}. Run this script with no "
+                 "arguments to generate a keypair.")
+    except ValueError as exc:
+        sys.exit(f"{pub_path} is not valid JSON: {exc}")
+    print(f"[KEYGEN] Public JWK from {pub_path}\n")
+    _print_instance_line(jwk)
+
+
 def generate(force=False):
     priv_path = os.path.join(_HERE, getattr(cfg, "CENTRAL_SSO_PRIVATE_KEY_PATH",
                                             "central_sso_private.pem"))
@@ -62,7 +85,11 @@ def generate(force=False):
             f"Refusing to overwrite {priv_path}.\n"
             "Regenerating invalidates the public key configured on EVERY enrolled\n"
             "instance — each one must be updated before SSO works again.\n"
-            "Pass --force if that is really what you want."
+            "\n"
+            "If you only wanted to SEE the public key again, use:\n"
+            "    python central_keygen.py --show\n"
+            "\n"
+            "Pass --force only if you really do want a new keypair."
         )
 
     print(f"[KEYGEN] Generating a {KEY_SIZE}-bit RSA keypair…")
@@ -97,14 +124,18 @@ def generate(force=False):
     print(f"[KEYGEN] Private key -> {priv_path}   (SECRET, gitignored)")
     print(f"[KEYGEN] Public JWK  -> {pub_path}")
     print()
-    print("Add this to every managed instance's config.py as one line:")
-    print()
-    print("    CENTRAL_SSO_PUBLIC_KEY = " + repr(json.dumps(jwk, separators=(",", ":"))))
-    print()
+    _print_instance_line(jwk)
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate Central's SSO signing keypair.")
+    ap.add_argument("--show", action="store_true",
+                    help="re-print the EXISTING public key line; generates nothing")
     ap.add_argument("--force", action="store_true",
                     help="overwrite an existing keypair (invalidates all instances)")
-    generate(ap.parse_args().force)
+    args = ap.parse_args()
+    if args.show:
+        show(os.path.join(_HERE, getattr(cfg, "CENTRAL_SSO_PUBLIC_JWK_PATH",
+                                         "central_sso_public.jwk.json")))
+    else:
+        generate(args.force)
