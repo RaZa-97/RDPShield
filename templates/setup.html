@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% include '_pwa_head.html' %}
+    <title>RDPShield — First-run setup</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" class="brand-logo" alt="">
+            <div>
+                <div class="auth-title">RDPSHIELD</div>
+                <div class="auth-tag">RDP Threat Defense</div>
+            </div>
+        </div>
+
+        <div class="auth-step">STEP 00 / FIRST-RUN SETUP</div>
+        <h1 class="auth-h1">Create the root admin</h1>
+        <p class="auth-sub">This is a fresh install with no accounts yet. Create the
+           first administrator to get in. You'll enrol MFA on your first sign-in.</p>
+
+        {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+
+        {% if not local_only %}
+        <form method="POST" action="/setup" class="auth-form">
+            <label class="auth-label" for="username">Admin username</label>
+            <input class="form-input auth-input" type="text" id="username" name="username"
+                   autocomplete="username" autofocus required>
+
+            <label class="auth-label" for="password">Password</label>
+            <input class="form-input auth-input" type="password" id="password" name="password"
+                   autocomplete="new-password" required>
+
+            <label class="auth-label" for="confirm">Confirm password</label>
+            <input class="form-input auth-input" type="password" id="confirm" name="confirm"
+                   autocomplete="new-password" required>
+
+            <label class="auth-label" for="phone">Mobile number <span style="opacity:.6">(optional, for SMS unlock)</span></label>
+            <input class="form-input auth-input" type="text" id="phone" name="phone"
+                   inputmode="tel" placeholder="+947XXXXXXXX">
+
+            <button type="submit" class="btn-apply auth-submit">Create admin &amp; continue &rarr;</button>
+        </form>
+        {% endif %}
+
+        <div class="auth-foot"><span class="live-dot"></span> one-time setup — local access only</div>
+    </div>
+</body>
+</html>

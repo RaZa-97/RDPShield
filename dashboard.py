@@ -179,7 +179,7 @@ def _safe_next(default=None):
 # =========================================================================
 
 # Endpoints reachable WITHOUT a full login (the auth flow itself + assets).
-PUBLIC_ENDPOINTS = {"login", "mfa", "logout", "forgot", "reset",
+PUBLIC_ENDPOINTS = {"setup", "login", "mfa", "logout", "forgot", "reset",
                     "unlock", "unlock_verify", "verify_account",
                     "service_worker", "static"}
 
@@ -190,6 +190,15 @@ def require_login():
     auth flow and static assets. Also enforces a 1-hour idle timeout and
     refreshes the per-user 'last active' marker used to spot concurrent
     suspicious logins."""
+    # First run (empty DB, no accounts): funnel everything to the setup wizard
+    # so the operator can create the initial root admin. Without this there is
+    # no way in — account creation is otherwise admin-only. Static assets and
+    # the wizard itself are allowed through.
+    if _needs_setup():
+        if request.endpoint in ("setup", "static") or request.endpoint is None:
+            return
+        return redirect(url_for("setup"))
+
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
         return
     uid = session.get("user_id")
@@ -219,7 +228,7 @@ def require_login():
 # in static/js/csrf.js adds both automatically). The auth-flow endpoints are
 # exempt — they run before/around session establishment and SameSite=Lax
 # already covers login CSRF.
-CSRF_EXEMPT = {"login", "mfa", "logout", "forgot", "reset",
+CSRF_EXEMPT = {"setup", "login", "mfa", "logout", "forgot", "reset",
                "unlock", "unlock_verify", "verify_account",
                "service_worker", "static"}
 
@@ -279,18 +288,37 @@ def _password_ok(pw):
     return isinstance(pw, str) and len(pw) >= MIN_PASSWORD_LEN
 
 
-def _seed_default_admin():
-    """First run: create the ROOT admin with a RANDOM strong password (printed
-    once to the log) instead of a guessable default. MFA is enrolled on first
-    login; change the password from the Users page afterwards."""
-    if count_users() == 0:
-        temp_pw = secrets.token_urlsafe(12)
-        create_user("admin", auth.hash_password(temp_pw), role="admin", is_root=1)
-        print("=" * 64)
-        print("[AUTH] Seeded ROOT admin account 'admin'.")
-        print(f"[AUTH] TEMPORARY PASSWORD: {temp_pw}")
-        print("[AUTH] Log in, enroll MFA, then change this password immediately.")
-        print("=" * 64)
+# First-run bootstrap: on an empty database there are no accounts and no
+# public signup, so the very first admin is created through a one-time /setup
+# wizard (see the `setup` route). `_needs_setup()` gates it. The result is
+# cached once accounts exist so we don't COUNT on every single request.
+_setup_complete = False
+
+
+def _needs_setup():
+    """True only while the database has no user accounts at all."""
+    global _setup_complete
+    if _setup_complete:
+        return False
+    if count_users() > 0:
+        _setup_complete = True
+        return False
+    return True
+
+
+def _is_local_request():
+    """Is this request coming from the server itself or the local network?
+
+    The first-run wizard creates an unauthenticated admin, so we only expose it
+    to loopback / private-LAN clients — never to the public internet. remote_addr
+    already reflects the real client because ProxyFix is applied above."""
+    ip = (request.remote_addr or "").strip()
+    if ip in ("127.0.0.1", "::1", "localhost"):
+        return True
+    # IPv4-mapped IPv6 (e.g. ::ffff:192.168.1.5) -> compare the trailing IPv4.
+    if ip.startswith("::ffff:"):
+        ip = ip.rsplit(":", 1)[-1]
+    return ip.startswith(config.PRIVATE_IP_PREFIXES)
 
 
 # =========================================================================
@@ -388,6 +416,63 @@ def _is_user_active(user_id):
 # =========================================================================
 # AUTH ROUTES: login -> MFA (enroll/verify) -> session
 # =========================================================================
+
+@app.route("/setup", methods=["GET", "POST"])
+def setup():
+    """First-run wizard: create the initial ROOT admin on an empty database.
+
+    This is the ONLY unauthenticated account-creation path, so it is locked
+    down hard: it exists ONLY while there are zero accounts (it disappears the
+    instant the first admin is created) and is reachable ONLY from loopback /
+    the local network. After it succeeds the operator logs in normally and
+    enrolls MFA on that first sign-in."""
+    # Already set up -> this endpoint no longer exists; send them to login.
+    if not _needs_setup():
+        return redirect(url_for("login"))
+
+    # Never expose unauthenticated admin creation to the public internet.
+    if not _is_local_request():
+        return render_template(
+            "setup.html", local_only=True,
+            error="For security, first-time setup must be done from the server "
+                  "itself or the local network — not over a public address."), 403
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+        phone = _normalize_phone(request.form.get("phone", "")) or None
+
+        if not username:
+            return render_template("setup.html", error="Choose a username.")
+        if not _password_ok(password):
+            return render_template(
+                "setup.html",
+                error=f"Password must be at least {MIN_PASSWORD_LEN} characters.")
+        if password != confirm:
+            return render_template("setup.html", error="The two passwords don't match.")
+
+        # Race guard: re-check under the same request in case a parallel setup
+        # already created the first account.
+        if not _needs_setup():
+            return redirect(url_for("login"))
+
+        # verified=1: the root admin is the trust anchor, so no SMS gate here.
+        # A phone is optional but recommended (needed for the SMS unlock flow).
+        uid = create_user(username, auth.hash_password(password),
+                          role="admin", is_root=1, phone=phone, verified=1)
+        if not uid:
+            return render_template("setup.html", error="Could not create the account. Try again.")
+
+        global _setup_complete
+        _setup_complete = True
+        print(f"[AUTH] First-run setup: created ROOT admin '{username}'.")
+        flash("Root admin created. Sign in below — you'll set up MFA on this first login.",
+              "success")
+        return redirect(url_for("login"))
+
+    return render_template("setup.html", error=None)
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -1773,7 +1858,10 @@ def export_csv(key):
 if __name__ == "__main__":
     print("[DASHBOARD] Initializing database...")
     init_db()
-    _seed_default_admin()
+    # No auto-seeded admin: on an empty database the first sign-in is handled by
+    # the one-time /setup wizard (create the root admin, then log in + enroll MFA).
+    if _needs_setup():
+        print("[DASHBOARD] No accounts yet -> browse to /setup to create the first admin.")
     # Background maintenance: key-rotation reminders + auto data-retention purge.
     threading.Thread(target=_maintenance_loop, daemon=True).start()
 

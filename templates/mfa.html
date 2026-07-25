@@ -22,15 +22,21 @@
         <h1 class="auth-h1">Two-factor</h1>
 
         {% if enrolling %}
+        {% if qr_svg %}
         <p class="auth-sub">Set up two-factor for <strong>{{ username }}</strong>. Scan this QR with
             Google Authenticator / Authy, then enter the 6-digit code to confirm.</p>
+        {% else %}
+        <p class="auth-sub">Set up two-factor for <strong>{{ username }}</strong>. In Google
+            Authenticator / Authy choose <strong>&ldquo;Enter a setup key&rdquo;</strong>, add the
+            key below as a <strong>time-based</strong> account, then enter the 6-digit code to confirm.</p>
+        {% endif %}
 
         <div class="mfa-enroll">
             {% if qr_svg %}
             <div class="mfa-qr">{{ qr_svg|safe }}</div>
             {% endif %}
             <div class="mfa-key">
-                <span class="auth-label">Or enter this key manually</span>
+                <span class="auth-label">{% if qr_svg %}Or enter this key manually{% else %}Setup key{% endif %}</span>
                 <code class="mfa-secret">{{ secret }}</code>
             </div>
         </div>
