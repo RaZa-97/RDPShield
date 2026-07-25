@@ -32,16 +32,15 @@ run_agent.bat
 run_dashboard.bat
 panic_unblock.bat
 
-# Dissertation evidence: keep the structure (README + .gitkeep) but DON'T
-# commit screenshots / generated tables / raw rows (real attacker IPs, blurred
-# secrets). To deliberately include one evidence file:  git add -f <path>
-evidence/screenshots/**/*.png
-evidence/screenshots/**/*.jpg
-evidence/screenshots/**/*.jpeg
-evidence/data/*/
-evidence/logs/*
-!evidence/**/.gitkeep
-!evidence/README.md
+# Local-only working notes and dissertation evidence — NOT published.
+# PROGRESS.md is the build log / source of truth for this project, but it
+# records the live server's public IP, the scheduled-task + deploy layout and
+# notes on which API keys have been exposed. The evidence tree holds real
+# attacker data and dissertation screenshots. Both were deliberately removed
+# from the public GitHub repo (commits 55f5453 / 2edaf4a, 2026-07-01) and are
+# kept here so they stay on disk without ever being pushed again.
+PROGRESS.md
+evidence/
 
 # Dissertation drafts / Office temp files / DB backups — not part of the tool
 *.bak
