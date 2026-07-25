@@ -1659,6 +1659,14 @@ def list_users():
     return rows
 
 
+def set_user_role(user_id, role):
+    """Change a user's role. Used by the Central SSO consumer to keep a shadow
+    account's local role in step with the role Central asserts in its token."""
+    conn = get_connection(); c = conn.cursor()
+    c.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+    conn.commit(); conn.close()
+
+
 def get_root_user():
     """The root admin (is_root=1), or the earliest admin as a fallback."""
     conn = get_connection(); c = conn.cursor()

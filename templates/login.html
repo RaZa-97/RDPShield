@@ -18,9 +18,15 @@
             </div>
         </div>
 
-        <div class="auth-step">STEP 01 / AUTHENTICATE</div>
+        <div class="auth-step">{% if central_managed %}CENTRALLY MANAGED{% else %}STEP 01 / AUTHENTICATE{% endif %}</div>
         <h1 class="auth-h1">Sign in</h1>
+        {% if central_managed %}
+        <p class="auth-sub">This server is managed by <strong>RDPShield Central</strong>.
+           Sign in there and use <strong>Open Dashboard</strong> on this server's row —
+           you won't be asked for a second password.</p>
+        {% else %}
         <p class="auth-sub">Access the RDPShield operations console.</p>
+        {% endif %}
 
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% for category, msg in messages %}
@@ -35,6 +41,13 @@
         </a>
         {% endif %}
 
+        {% if central_managed %}
+        <div class="auth-foot" style="margin-top:18px;">
+            Locked out and Central is unreachable? An operator on the server can set
+            <code>CENTRAL_LOCAL_LOGIN_FALLBACK = True</code> in <code>config.py</code>
+            and restart the dashboard to restore this form. See SECURITY.md.
+        </div>
+        {% else %}
         <form method="POST" action="/login" class="auth-form">
             <label class="auth-label" for="username">Username</label>
             <input class="form-input auth-input" type="text" id="username" name="username"
@@ -60,6 +73,7 @@
         <div class="auth-row" style="justify-content:center;margin-top:14px;">
             <a href="/verify" class="auth-forgot">New account? Activate it with your SMS code &rarr;</a>
         </div>
+        {% endif %}
 
         <div class="auth-foot"><span class="live-dot"></span> session encrypted</div>
     </div>

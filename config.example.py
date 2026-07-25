@@ -187,6 +187,46 @@ YARA_MEMORY_EXCLUDE_NAMES = [
 YARA_QUARANTINE_DIR = r"C:\RDPShield_Quarantine"
 
 # =============================================================================
+# RDPSHIELD CENTRAL (v4.0) — optional multi-tenant command centre
+# =============================================================================
+# All OFF by default. With this whole block absent or disabled, the instance
+# behaves exactly as it did before Central existed — nothing here is required.
+#
+# Values come from Central's "Enrol a server" screen, which shows the agent id
+# and API key ONCE. See CENTRAL.md.
+
+# --- Reporting (this instance pushes its own summary to Central) ---
+# Only aggregated counters leave this box (see central_report_schema.py): no
+# attacker IPs, no usernames, no YARA findings. Central never connects in.
+CENTRAL_ENABLED = False
+CENTRAL_URL = ""                  # e.g. "https://central.example.com:6100"
+CENTRAL_AGENT_ID = ""             # e.g. "ag_9f1c…"  (issued at enrolment)
+CENTRAL_API_KEY = ""              # issued at enrolment; shown only once
+CENTRAL_REPORT_INTERVAL = 60      # seconds between check-ins
+CENTRAL_VERIFY_TLS = True         # never False outside a lab
+
+# --- Single sign-on (accept sessions minted by Central) ---
+# Central's PUBLIC key, printed by `python central_keygen.py`, as one JSON
+# string. It can only VERIFY a token, never mint one, so this is not a secret —
+# a stolen copy grants nothing.
+CENTRAL_SSO_PUBLIC_KEY = ""
+CENTRAL_SSO_ISSUER = "rdpshield-central"
+CENTRAL_SSO_MAX_TTL = 300         # reject tokens minted with a longer life
+
+# --- Central-managed identity ---
+# True moves login for THIS instance to Central: the local /login form is
+# withdrawn and the only way in is a signed SSO token. Requires CENTRAL_ENABLED
+# plus the SSO settings above.
+CENTRAL_MANAGED = False
+
+# BREAK-GLASS. If Central is unreachable or an operator is locked out, set this
+# True on the box and restart the dashboard — the local login form returns even
+# while CENTRAL_MANAGED is True. Turn it back off once Central is healthy.
+# Deliberately config-only: it cannot be flipped from the web UI, so an attacker
+# with a dashboard session cannot re-open local password login.
+CENTRAL_LOCAL_LOGIN_FALLBACK = False
+
+# =============================================================================
 # VIRUSTOTAL (file-hash + IP reputation enrichment)
 # =============================================================================
 # Free API key from https://www.virustotal.com/  (Account -> API Key).

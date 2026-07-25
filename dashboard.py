@@ -67,6 +67,7 @@ from database import (
     set_user_totp,
     update_last_login,
     set_user_disabled,
+    set_user_role,
     update_user_phone,
     update_user_password,
     get_root_user,
@@ -181,7 +182,7 @@ def _safe_next(default=None):
 # Endpoints reachable WITHOUT a full login (the auth flow itself + assets).
 PUBLIC_ENDPOINTS = {"setup", "login", "mfa", "logout", "forgot", "reset",
                     "unlock", "unlock_verify", "verify_account",
-                    "service_worker", "static"}
+                    "sso", "service_worker", "static"}
 
 
 @app.before_request
@@ -230,7 +231,7 @@ def require_login():
 # already covers login CSRF.
 CSRF_EXEMPT = {"setup", "login", "mfa", "logout", "forgot", "reset",
                "unlock", "unlock_verify", "verify_account",
-               "service_worker", "static"}
+               "sso", "service_worker", "static"}
 
 
 def _ensure_csrf_token():
@@ -480,6 +481,16 @@ def login():
     if session.get("user_id"):
         return redirect(url_for("index"))
 
+    # Central-managed instance: identity lives in Central, so the public login
+    # form is withdrawn and the only way in is a signed SSO token (/sso).
+    # BREAK-GLASS: if Central is unreachable or an operator is locked out, set
+    # CENTRAL_LOCAL_LOGIN_FALLBACK = True in config.py on the box and restart —
+    # the form comes straight back. Documented in SECURITY.md and CENTRAL.md.
+    if _central_managed() and not getattr(config, "CENTRAL_LOCAL_LOGIN_FALLBACK", False):
+        return render_template("login.html", central_managed=True, error=None,
+                               info="This server is managed centrally. Sign in at "
+                                    "RDPShield Central and open it from there."), 403
+
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -612,6 +623,123 @@ def logout():
     _ACTIVE_USERS.pop(session.get("user_id"), None)
     session.clear()
     return redirect(url_for("login"))
+
+
+# =========================================================================
+# CENTRAL SSO CONSUMER (v4.0)
+# =========================================================================
+# When this instance is enrolled in RDPShield Central, an operator clicking
+# "Open Dashboard" there is redirected here with a short-lived signed token.
+# We verify it with Central's PUBLIC key only — this box holds no signing key
+# and therefore cannot mint a session for itself or anyone else.
+#
+# Everything below runs on the standard library (central_sso_verify.py); no new
+# pip package is needed on the server.
+
+# Spent token ids: jti -> expiry epoch. In-memory and single-process, the same
+# approach as the SMS reset/unlock codes. A restart forgets them, but every
+# token also expires within ~60s, so the replay window a restart could reopen
+# is bounded by the token's own lifetime rather than by this dict.
+_USED_SSO_JTI = {}
+
+
+def _central_managed():
+    """True when identity for this instance has been moved to Central."""
+    try:
+        import central_reporter
+        return central_reporter.managed()
+    except Exception:
+        return False
+
+
+def _sso_burn_jti(jti, exp):
+    """Record a token id as spent. Returns False if it was already used."""
+    now = time.time()
+    for old, when in list(_USED_SSO_JTI.items()):
+        if when < now:
+            _USED_SSO_JTI.pop(old, None)
+    if jti in _USED_SSO_JTI:
+        return False
+    _USED_SSO_JTI[jti] = exp
+    return True
+
+
+@app.route("/sso")
+def sso():
+    """Consume a Central-issued SSO token and establish a local session."""
+    import central_sso_verify
+
+    public_jwk = getattr(config, "CENTRAL_SSO_PUBLIC_KEY", "")
+    agent_id = getattr(config, "CENTRAL_AGENT_ID", "")
+    if not public_jwk or not agent_id:
+        _audit("sso.reject", "instance not configured for Central SSO")
+        return render_template("login.html", error=(
+            "This server isn't configured for Central single sign-on."), info=None), 400
+
+    try:
+        claims = central_sso_verify.verify_token(
+            request.args.get("token", ""),
+            public_jwk,
+            expected_audience=agent_id,
+            expected_issuer=getattr(config, "CENTRAL_SSO_ISSUER", "rdpshield-central"),
+            max_lifetime=int(getattr(config, "CENTRAL_SSO_MAX_TTL", 300)),
+        )
+    except central_sso_verify.SSOError as exc:
+        # The reason is logged locally but never shown to the browser, so a
+        # probing client learns nothing about why a token was refused.
+        add_audit("central-sso", "sso.reject", str(exc), request.remote_addr or "")
+        print(f"[SSO] rejected a token: {exc}")
+        return render_template("login.html", error=(
+            "That single sign-on link is not valid or has expired. "
+            "Open this server from RDPShield Central again."), info=None), 403
+
+    if not _sso_burn_jti(claims["jti"], claims["exp"]):
+        add_audit("central-sso", "sso.replay", f"jti={claims['jti']}",
+                  request.remote_addr or "")
+        return render_template("login.html", error=(
+            "That single sign-on link has already been used. "
+            "Open this server from RDPShield Central again."), info=None), 403
+
+    # Map the Central operator onto a local account. A shadow user is created on
+    # first arrival so the existing session gate, RBAC, audit log and templates
+    # all work unchanged. Its password hash is random and discarded, so the
+    # account can never be used to log in locally — it exists only as the
+    # identity an SSO session attaches to.
+    local_role = "admin" if claims.get("role") == "admin" else "guest"
+    username = f"central:{claims.get('sub', 'operator')}"[:64]
+    user = get_user_by_username(username)
+    if not user:
+        create_user(username, auth.hash_password(secrets.token_urlsafe(32)),
+                    role=local_role, mfa_enabled=0, verified=1)
+        user = get_user_by_username(username)
+        if not user:
+            return render_template("login.html", error=(
+                "Could not establish a local session for that Central operator."),
+                info=None), 500
+    if user.get("disabled"):
+        # A local admin disabling a shadow account is a deliberate local veto
+        # over Central — honour it.
+        add_audit(username, "sso.reject", "shadow account disabled locally",
+                  request.remote_addr or "")
+        return render_template("login.html", error=(
+            "That account has been disabled on this server."), info=None), 403
+    if user["role"] != local_role:
+        set_user_role(user["id"], local_role)
+
+    now = datetime.now()
+    update_last_login(user["id"], now.strftime("%Y-%m-%d %H:%M:%S"))
+    session.clear()
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["role"] = local_role
+    session["is_root"] = False          # a Central operator is never local root
+    session["via_sso"] = True
+    session["theme"] = user.get("theme") if user.get("theme") in ("dark", "light") else "dark"
+    session["login_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
+    session["last_active"] = time.time()
+    _ACTIVE_USERS[user["id"]] = time.time()
+    _audit("sso.login", f"via Central as {claims.get('sub')} (jti={claims['jti']})")
+    return redirect(url_for("index"))
 
 
 @app.route("/sw.js")
@@ -1864,6 +1992,18 @@ if __name__ == "__main__":
         print("[DASHBOARD] No accounts yet -> browse to /setup to create the first admin.")
     # Background maintenance: key-rotation reminders + auto data-retention purge.
     threading.Thread(target=_maintenance_loop, daemon=True).start()
+
+    # Optional: check in with RDPShield Central. Off unless the CENTRAL_*
+    # settings are present in config.py, so an unmanaged instance is unaffected.
+    try:
+        import central_reporter
+        central_reporter.start()
+        if central_reporter.managed():
+            print("[CENTRAL] CENTRAL_MANAGED=True — the local /login form is "
+                  "disabled; sign in via Central. Break-glass: set "
+                  "CENTRAL_LOCAL_LOGIN_FALLBACK = True in config.py and restart.")
+    except Exception as e:
+        print(f"[CENTRAL] reporter not started: {e}")
 
     # Optional direct TLS: set DASHBOARD_SSL_CERT + DASHBOARD_SSL_KEY in
     # config.py to serve HTTPS from Flask itself (no reverse proxy). Leave them
