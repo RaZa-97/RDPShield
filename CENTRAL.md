@@ -118,10 +118,26 @@ ever executed on a customer box. A customer server that pulls the repo simply
 carries some inert files.
 
 ### Dependencies
-* **Central** needs `cryptography` (`pip install cryptography`) in addition to
-  the project's usual `flask requests pyotp`. `qrcode` is optional.
+* **Central** needs `cryptography` in addition to the project's usual
+  `flask requests pyotp`. `qrcode` is optional.
 * **A customer instance needs nothing new.** Token verification is pure standard
   library.
+
+> **⚠ Installing `cryptography` on 32-bit Python 3.11**
+>
+> ```cmd
+> pip install "cryptography==48.0.1"
+> ```
+>
+> Pin the version. `cryptography` **49.0.0 and later ship no 32-bit Windows
+> wheel**, so a plain `pip install cryptography` falls back to building from
+> source and fails without a Rust toolchain and MSVC build tools. **48.0.1** is
+> the last release with a `cp311-abi3-win32` wheel. On 64-bit Python, plain
+> `pip install cryptography` is fine.
+>
+> This is the same class of problem as `psutil` 7.x on this platform, and it is
+> the reason the instance side of SSO is pure stdlib — a customer box never has
+> to clear this hurdle at all.
 
 That asymmetry is deliberate. The customer servers run **32-bit Python 3.11**,
 where native wheels have repeatedly been a problem (`psutil` 7.x and
@@ -133,11 +149,13 @@ uses: train offline with `scikit-learn`, score on the server in pure stdlib.
 
 ## 4. Setting up Central
 
-```bash
+```cmd
 cd central
-copy central_config.example.py central_config.py    # then edit it
-pip install cryptography
-python central_keygen.py                            # once
+copy central_config.example.py central_config.py
+:: 64-bit Python:  pip install cryptography
+:: 32-bit Python:  pin it — see the warning above
+pip install "cryptography==48.0.1"
+python central_keygen.py
 python central_app.py
 ```
 
@@ -423,6 +441,7 @@ Unauthenticated liveness probe. Returns `{"ok": true}` and nothing else.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `pip install cryptography` fails with a Rust / build error | 32-bit Python; 49.0.0+ has no win32 wheel | `pip install "cryptography==48.0.1"` — the last release with a `cp311-abi3-win32` wheel |
 | Central won't start, "TLS is not configured" | working as designed | set the cert/key, or `CENTRAL_BEHIND_PROXY`; `CENTRAL_ALLOW_INSECURE_HTTP` for local dev only |
 | Central won't start, "No SSO signing keypair" | keygen not run | `python central_keygen.py` |
 | Agent stuck on **Pending** | it has never checked in | confirm `CENTRAL_ENABLED = True` and restart the dashboard; check its log for `[CENTRAL]` |
