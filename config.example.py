@@ -203,7 +203,15 @@ CENTRAL_URL = ""                  # e.g. "https://central.example.com:6100"
 CENTRAL_AGENT_ID = ""             # e.g. "ag_9f1c…"  (issued at enrolment)
 CENTRAL_API_KEY = ""              # issued at enrolment; shown only once
 CENTRAL_REPORT_INTERVAL = 60      # seconds between check-ins
-CENTRAL_VERIFY_TLS = True         # never False outside a lab
+
+# TLS verification for the check-in. Three accepted forms:
+#   True                    verify against the system CA bundle (real cert)
+#   r"C:\certs\central.crt" verify against THAT certificate — the right setting
+#                           for a SELF-SIGNED Central: still fully verified,
+#                           just pinned to a cert you placed here yourself
+#   False                   no verification. Lab only — an attacker on the path
+#                           could impersonate Central and harvest this API key.
+CENTRAL_VERIFY_TLS = True
 
 # --- Single sign-on (accept sessions minted by Central) ---
 # Central's PUBLIC key, printed by `python central_keygen.py`, as one JSON

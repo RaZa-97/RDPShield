@@ -243,13 +243,26 @@ def send_once(timeout=15):
     except Exception as exc:
         return False, f"Could not build the summary: {exc}"
 
+    # CENTRAL_VERIFY_TLS may be:
+    #   True  - verify against the system CA bundle (a real certificate)
+    #   "<path to cert.pem>" - verify against THAT certificate, which is how a
+    #           self-signed Central should be used: still fully verified, just
+    #           pinned to a cert you placed on the box yourself
+    #   False - no verification at all. Lab only; an active attacker on the path
+    #           could then impersonate Central and harvest this bearer key.
+    verify = _cfg("CENTRAL_VERIFY_TLS", True)
+    if isinstance(verify, str) and verify.strip():
+        verify = verify.strip()
+    else:
+        verify = bool(verify)
+
     url = f"{base}/api/v1/agents/{agent_id}/report"
     try:
         resp = requests.post(
             url, json=payload, timeout=timeout,
             headers={"Authorization": f"Bearer {api_key}",
                      "User-Agent": f"RDPShield-Agent/{AGENT_VERSION}"},
-            verify=bool(_cfg("CENTRAL_VERIFY_TLS", True)),
+            verify=verify,
         )
     except requests.RequestException as exc:
         # Central being down is normal and non-fatal: this instance keeps
