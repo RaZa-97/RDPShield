@@ -462,7 +462,38 @@ like a native app.
 
 ---
 
+## 15. (Optional) Managing many servers — RDPShield Central
+
+Everything above installs **one** instance protecting **one** server, with its
+own dashboard and its own login. That is the complete product and needs nothing
+else.
+
+If you are running several deployments, **RDPShield Central** adds one console
+above them: fleet-wide stat tiles, a searchable table of every managed server,
+per-customer drill-down, and click-through into any server's own dashboard
+without a second login.
+
+It is a **separate Flask process on port 6100** and is **never installed on a
+protected server**. Instances **push** aggregated counters to it — Central never
+connects out — so no inbound port is opened on a customer box and NAT is not an
+issue. Raw failed-login records, attacker IPs and YARA findings never leave the
+instance.
+
+Enabling it on an existing instance is three steps: enrol the server in Central,
+paste the generated `CENTRAL_*` block into `config.py`, restart the dashboard.
+It is **off by default** — with no `CENTRAL_*` settings, nothing changes.
+
+> Note one difference from §11: **TLS is mandatory for Central** and it refuses
+> to start without it. It carries cross-tenant data and mints the tokens that
+> grant dashboard sessions, so the plain-HTTP trade-off accepted for a single
+> instance behind an IP allow-list does not apply.
+
+Full setup, enrolment, SSO flow, threat model, config and API reference:
+**[`CENTRAL.md`](CENTRAL.md)**.
+
+---
+
 For the **account-security & lockout model** (login, MFA, lockouts, SMS unlock,
-roles, CSRF, recovery), see **[`SECURITY.md`](SECURITY.md)**. For architecture,
-feature details, and the deployment cheat-sheet, see **`PROGRESS.md`**. For the
+roles, CSRF, recovery), see **[`SECURITY.md`](SECURITY.md)**. For the
+multi-tenant command centre, see **[`CENTRAL.md`](CENTRAL.md)**. For the
 attack-test plan, see **`TESTING.md`**.

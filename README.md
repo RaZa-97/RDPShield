@@ -44,6 +44,7 @@ monitoring, geographic access control, and a YARA scan controller.
 - **SMS alerts** — real-time notifications via [Notify.lk]
 - **Live SOC dashboard** — Flask + Chart.js: failed-login trend, alert breakdown, top attacker countries, blocked-IP management
 - **Authenticated access** — password + **TOTP two-factor** login, admin/guest **roles** with fine-grained RBAC (only root manages root/admins), **SMS phone-verification** for new users and credential changes (lock-until-verified), CSRF protection, and temporary account lockouts with **SMS self-unlock** recovery (see [`SECURITY.md`](SECURITY.md))
+- **Multi-tenant command centre (optional)** — **RDPShield Central** aggregates many independent deployments into one console: fleet-wide stat tiles, a searchable table of every managed server, per-customer drill-down, and single sign-on click-through into any server's own dashboard. Agents **push** aggregated counters to Central (no inbound access to a customer network, NAT-friendly) and raw attacker records never leave the instance. Off by default — see [`CENTRAL.md`](CENTRAL.md)
 
 ---
 
@@ -168,6 +169,7 @@ Key settings in `config.py` (see `config.example.py` for the full template):
 - **Account security model** — sign-in (password + TOTP), roles, account lockouts, SMS self-unlock recovery, session/cookie hardening, and CSRF are documented in **[`SECURITY.md`](SECURITY.md)**.
 - **`config.py` is gitignored** and must never be committed — it holds live API keys and credentials. Use `config.example.py` as the template. The auto-generated **`.flask_secret_key`** (session signing) is also gitignored — keep it private and per-server.
 - The dashboard runs over **plain HTTP** with a development server, with port 5000 restricted to the admin IP — the accepted setup for this dissertation deployment. **HTTPS/TLS is a documented future enhancement** (hooks are in place; see `INSTALL.md` §11), not a current step.
+- **RDPShield Central is the exception: TLS is mandatory there** and it refuses to start without it. Central carries cross-tenant data and mints the tokens that grant dashboard sessions, so plaintext is not an acceptable trade-off the way it is for a single instance behind an IP allow-list. Its threat model — including what a compromised instance, a compromised Central, or a stolen `central.db` actually gets an attacker — is set out in **[`CENTRAL.md`](CENTRAL.md)** §8.
 - RDPShield blocks **all inbound traffic** from a detected IP. Always add your own admin IP to `WHITELIST_IPS` before enabling geo-blocking or testing, to avoid locking yourself out.
 - This is a **defensive** tool intended for systems you own or are authorized to protect.
 

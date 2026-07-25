@@ -241,7 +241,74 @@ run before a session exists and are already covered by `SameSite=Lax`.
 
 ---
 
-## 11. Quick reference — "I'm locked out"
+## 11. Centrally managed instances (RDPShield Central)
+
+An instance can optionally be enrolled in **RDPShield Central**, the
+multi-tenant command centre. Full account in **[`CENTRAL.md`](CENTRAL.md)**;
+this section covers only what changes about *account security on the instance*.
+
+**With no `CENTRAL_*` settings in `config.py`, nothing in this section applies**
+— sign-in works exactly as described in sections 1–10.
+
+### What changes when `CENTRAL_MANAGED = True`
+
+* The instance's own **`/login` form is withdrawn** (returns 403 with an
+  explanation). Identity for that server now lives in Central.
+* The only way in is `/sso`, which consumes a **signed, ~60-second, single-use**
+  token that Central mints when an operator clicks **Open Dashboard**. The token
+  is bound to one `agent_uid`, so a token for another customer's server is
+  refused even though its signature is valid.
+* The instance holds **only Central's public verification key**. It cannot mint
+  a session — for itself or anyone else.
+* The operator arrives as a **`central:<name>` shadow account** with a random,
+  discarded password hash. It exists only as the identity a session attaches to,
+  and can never be used to log in locally.
+* Password reset, SMS unlock and phone verification (§4, §5) still exist but no
+  longer apply to Central operators — those are Central's responsibility. They
+  remain available for any ordinary local accounts on the box.
+
+### 🔑 Break-glass — Central is unreachable and you cannot sign in
+
+This is the documented recovery path. On the affected server, edit `config.py`:
+
+```python
+CENTRAL_LOCAL_LOGIN_FALLBACK = True
+```
+
+then restart the dashboard. The local login form returns immediately, even while
+`CENTRAL_MANAGED` is still `True`. Sign in with a local account as normal. Turn
+it back off once Central is healthy.
+
+Two deliberate properties of this switch:
+
+* It is **config-file-only**. It cannot be flipped from the web UI, so an
+  attacker who has stolen a dashboard session cannot use it to re-open local
+  password login. Using it requires filesystem access to the server.
+* It does **not** disable reporting or SSO — both keep working. It only restores
+  the local form as an additional way in.
+
+If no local password is known either, run `python reset_admin.py` on the server
+console: it resets the root admin's password and clears its MFA for re-enrolment.
+
+### A local admin can always veto Central
+
+Disabling the `central:<name>` account from the instance's **Users** page blocks
+SSO for that operator, even with a perfectly valid token. The owner of the box
+keeps the last word.
+
+### Instance-side hardening checklist for Central
+
+- [ ] `CENTRAL_URL` is **`https://`** — the reporter refuses to send the bearer
+      key over plain HTTP, and `CENTRAL_VERIFY_TLS` must stay `True`.
+- [ ] `CENTRAL_API_KEY` lives only in `config.py` (already gitignored). If it
+      leaks, **Rotate key** in Central.
+- [ ] `CENTRAL_SSO_PUBLIC_KEY` matches the Central you actually trust. It is not
+      a secret, but a wrong one silently breaks SSO.
+- [ ] Know where the break-glass switch is **before** you need it.
+
+---
+
+## 12. Quick reference — "I'm locked out"
 
 | Situation | Do this |
 |---|---|
@@ -252,8 +319,13 @@ run before a session exists and are already covered by `SameSite=Lax`.
 | Account shows "disabled — contact an administrator" | An admin must **Enable** it on the Users page (SMS unlock won't work). |
 | Lost MFA phone/app | An admin **Reset MFA** for you on the Users page; re-enroll next login. |
 | Root admin issues | Root is never auto-locked; if its credentials are lost, another admin resets its password/MFA from **Users**. |
+| No login form at all — "this server is managed centrally" | Sign in at **RDPShield Central** and click **Open Dashboard**. If Central is down, use the **break-glass** switch (§11). |
+| SSO link says "not valid or has expired" | Tokens last ~60 seconds. Click **Open Dashboard** in Central again. |
+| SSO link says "already been used" | Tokens are single-use. Click **Open Dashboard** again. |
+| Nothing works and you have console access | `python reset_admin.py` on the server — resets the root admin and clears its MFA. |
 
 ---
 
-For installation and updates see **[`INSTALL.md`](INSTALL.md)**; for architecture
-and feature details see **`PROGRESS.md`**.
+For installation and updates see **[`INSTALL.md`](INSTALL.md)**; for the
+multi-tenant command centre see **[`CENTRAL.md`](CENTRAL.md)**; for an overview
+see **[`README.md`](README.md)**.
