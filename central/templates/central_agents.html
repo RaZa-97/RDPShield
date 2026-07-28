@@ -36,16 +36,24 @@
         </h3>
         <p class="section-desc" style="margin-bottom:6px;">
             This is the only time this key is shown. Central keeps only a hash of it.
-            Add the following to that server's <code>config.py</code>, then restart its dashboard:
+            Append the following to that server's <code>config.py</code>, then restart its
+            dashboard.
         </p>
-<code>CENTRAL_MANAGED    = True
-CENTRAL_URL        = "{{ new_secret.central_url }}"
-CENTRAL_AGENT_ID   = "{{ new_secret.agent_uid }}"
-CENTRAL_API_KEY    = "{{ new_secret.api_key }}"
-CENTRAL_SSO_PUBLIC_KEY = "&lt;paste the JWK from central_keygen.py&gt;"</code>
+<pre class="secret-block">CENTRAL_ENABLED  = True
+CENTRAL_URL      = "{{ new_secret.central_url }}"
+CENTRAL_AGENT_ID = "{{ new_secret.agent_uid }}"
+CENTRAL_API_KEY  = "{{ new_secret.api_key }}"
+CENTRAL_SSO_PUBLIC_KEY = '&lt;paste the JWK printed by: python central_keygen.py --show&gt;'
+CENTRAL_MANAGED  = False</pre>
         <p class="section-desc" style="margin-bottom:0;">
-            Leave <code>CENTRAL_MANAGED = False</code> if you only want reporting without
-            moving that instance's login to Central — see CENTRAL.md.
+            <strong>If that server runs on this same host</strong>, change
+            <code>CENTRAL_URL</code> to <code>https://localhost:{{ central_port }}</code> —
+            a cloud instance usually cannot reach its own public address.
+            <strong>Self-signed certificate?</strong> Also set
+            <code>CENTRAL_VERIFY_TLS</code> to the certificate's path, which pins the agent
+            to it and keeps verification on.
+            <code>CENTRAL_MANAGED = True</code> additionally moves that instance's login to
+            Central — turn it on only after check-ins work. See CENTRAL.md.
         </p>
     </div>
     {% endif %}

@@ -227,16 +227,37 @@ a.tile:hover { border-color: var(--brand); }
     background: rgba(234, 88, 12, 0.07);
 }
 .secret-reveal h3 { color: var(--high); font-size: 1em; margin-bottom: 8px; }
-.secret-reveal code {
+
+/* The config block. It MUST be a <pre>: a <code> element collapses newlines, so
+   the five settings ran together on one line and had to be split by hand.
+   `white-space: pre` keeps them one per line, and the block scrolls sideways
+   rather than wrapping, so a long API key stays selectable as a single token. */
+.secret-block {
     display: block;
-    word-break: break-all;
-    font-size: 0.95em;
-    padding: 10px 12px;
+    white-space: pre;
+    overflow-x: auto;
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
+    font-size: 0.9em;
+    line-height: 1.6;
+    padding: 12px 14px;
     margin: 10px 0;
     border-radius: 6px;
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
+}
+
+/* Inline <code> inside the callout stays inline — it was previously caught by a
+   blanket `display: block`, which pushed phrases like "config.py" onto their own
+   full-width line and fragmented the surrounding sentence. */
+.secret-reveal code {
+    display: inline;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    white-space: nowrap;
 }
 
 /* ---------- Responsive -------------------------------------------------- */

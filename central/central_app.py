@@ -661,7 +661,8 @@ def agents_page():
     return render_template("central_agents.html", active="agents",
                            agents=agents, customers=customers,
                            new_secret=new_secret,
-                           central_url=getattr(cfg, "CENTRAL_PUBLIC_URL", ""))
+                           central_url=getattr(cfg, "CENTRAL_PUBLIC_URL", ""),
+                           central_port=getattr(cfg, "CENTRAL_PORT", 6100))
 
 
 @app.route("/agents/enroll", methods=["POST"])
