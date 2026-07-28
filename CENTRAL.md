@@ -111,6 +111,7 @@ one place, and Central stays a viewer.
 | `central_report_schema.py` | **both** | The payload contract |
 | `central_sso_verify.py` | **instance** | Pure-stdlib token verification |
 | `central_reporter.py` | **instance** | Background check-in thread |
+| `tools/link_central.py` | **instance** | Writes the `CENTRAL_*` block into `config.py` safely (§5) |
 | `static/central.css` | Central | Additive styling; inherits the shared light/dark theme |
 
 `central/` lives in the same repository for convenience, but nothing in it is
@@ -225,6 +226,46 @@ So `central_app.py` **refuses to start** unless one of these is true:
 only**. It prints a warning on every start and disables the Secure cookie flag.
 Never set it on a networked host.
 
+#### A self-signed certificate is fine — with one detail that matters
+
+```cmd
+mkdir C:\certs
+"C:\Program Files\Git\usr\bin\openssl.exe" req -x509 -newkey rsa:2048 -nodes -days 365 ^
+  -keyout C:\certs\central.key -out C:\certs\central.crt ^
+  -subj "/CN=rdpshield-central" ^
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:<your.public.ip>"
+```
+
+The **`subjectAltName` is not optional**. Modern browsers ignore the Common Name
+entirely and reject a certificate outright — no "proceed anyway" — if the address
+you typed is not in the SAN. Include every address you will actually use:
+`localhost` for the agent, and the public IP for your own browser.
+
+Point agents at the certificate rather than disabling verification:
+
+```python
+CENTRAL_VERIFY_TLS = r"C:\certs\central.crt"    # not False
+```
+
+This **pins** the agent to that exact certificate. It ignores the CA system
+altogether, so it cannot be fooled by any CA-issued certificate — for a fixed
+pair of endpoints you control, that is stricter than ordinary CA validation.
+
+Browsers will still show "Not secure", because no trusted CA vouches for the
+certificate (the traffic *is* encrypted — only the identity is unverified). To
+get a padlock, trust it on the machine you browse from, **as Administrator**:
+
+```cmd
+certutil -addstore -f "ROOT" C:\certs\central.crt
+```
+
+Then restart the browser. This affects only that machine.
+
+> **If the host's public IP changes** — an EC2 instance without an Elastic IP
+> gets a new one on every stop/start — the SAN no longer matches and the browser
+> rejects it. Regenerate the certificate and update `CENTRAL_PUBLIC_URL`, or
+> attach a static address.
+
 ---
 
 ## 5. Enrolling an agent
@@ -233,20 +274,62 @@ Never set it on a networked host.
 2. **Central → Agents → Enrol a server.** Pick the customer, give the server a
    name, and set its **Dashboard URL** (e.g. `https://1.2.3.4:5000`) — that URL
    is where "Open Dashboard" sends the operator.
-3. Central shows the generated `agent_uid` and API key **once**. Copy the block
-   it displays into that server's `config.py`:
+3. Central shows the generated `agent_uid` and API key **once**. Note them down.
+4. On the protected server, write them into `config.py` with the helper —
+   **this is the recommended path**:
+
+```cmd
+cd C:\Projects\RDPShield
+python tools\link_central.py --agent-id ag_... --api-key rdps_... ^
+    --central-url https://localhost:6100 --verify-tls C:\certs\central.crt
+```
+
+   It reads Central's public key straight off disk (so it cannot be mistyped or
+   line-wrapped), validates every argument, backs `config.py` up, appends a
+   correctly-formatted block, then re-imports the file to prove it still parses
+   — **restoring the backup automatically if it does not**, so a bad edit can
+   never leave the dashboard unable to start. Add `--force` to supersede an
+   earlier partial attempt.
+
+5. Restart that instance's dashboard. It checks in within a minute and the row
+   turns **Online**.
+
+<details>
+<summary>Writing the block by hand instead</summary>
 
 ```python
 CENTRAL_ENABLED  = True
 CENTRAL_URL      = "https://central.example.com:6100"
 CENTRAL_AGENT_ID = "ag_…"
 CENTRAL_API_KEY  = "rdps_…"
+CENTRAL_VERIFY_TLS = r"C:\certs\central.crt"   # only for a self-signed Central
 CENTRAL_SSO_PUBLIC_KEY = '{"kty":"RSA",…}'
 CENTRAL_MANAGED  = False      # see §7
 ```
 
-4. Restart that instance's dashboard. It checks in within a minute and the row
-   turns **Online**.
+Every one of these went wrong during a real deployment, so if you do it by hand,
+check all four:
+
+* **The right file.** `config.py` in the project root — *not*
+  `central/central_config.py`. Pasting the block into Central's own config makes
+  Central refuse to start on its next restart.
+* **One setting per line.** A block collapsed onto one line is a `SyntaxError`.
+* **`CENTRAL_SSO_PUBLIC_KEY` on a single unbroken line**, single-quoted outside
+  and double-quoted inside. It is ~500 characters and is the easiest thing to
+  drop or truncate — and if it is missing, everything else looks fine while SSO
+  fails with *"This server isn't configured for Central single sign-on."*
+* **Save, then verify** before restarting:
+  ```cmd
+  python -c "import config; print(config.CENTRAL_ENABLED, config.CENTRAL_AGENT_ID, len(config.CENTRAL_SSO_PUBLIC_KEY))"
+  ```
+</details>
+
+> **`CENTRAL_URL` when Central runs on the same host.** The enrolment box shows
+> your `CENTRAL_PUBLIC_URL`, which is the address *operators* browse to. An agent
+> on that same machine should use **`https://localhost:6100`** instead — a cloud
+> instance generally cannot reach its own public address (no NAT hairpin), so the
+> check-in would silently time out. The Dashboard URL is unaffected: that one is
+> opened by the operator's browser, so it must stay externally reachable.
 
 The key is stored **only as a werkzeug hash**. Central can verify it but can
 never reproduce it — refreshing the Agents page does not re-reveal it. If it is
@@ -479,6 +562,12 @@ Unauthenticated liveness probe. Returns `{"ok": true}` and nothing else.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `pip install cryptography` fails with a Rust / build error | 32-bit Python; 49.0.0+ has no win32 wheel | `pip install "cryptography==48.0.1"` — the last release with a `cp311-abi3-win32` wheel |
+| Edited the config but nothing changed | config is read **only at startup** | restart Central; its startup log now prints the config file, bind address and cert it actually loaded |
+| `ERR_CONNECTION_TIMED_OUT` from a remote browser | packets dropped — never reached a socket | check in order: `netstat -ano \| findstr :6100` shows `0.0.0.0` not `127.0.0.1`; Windows Firewall rule exists; cloud security-group rule allows **your current IP** |
+| `ERR_CONNECTION_RESET` from a remote browser | something *is* listening and rejected you — usually `http://` against a TLS listener | type `https://` explicitly; a bare `host:port` goes to http |
+| Browser rejects the certificate with no "proceed" option | no `subjectAltName`, or the address isn't in it | regenerate with `-addext "subjectAltName=..."` covering every address you use |
+| *"This server isn't configured for Central single sign-on"* | `CENTRAL_SSO_PUBLIC_KEY` or `CENTRAL_AGENT_ID` missing from the instance's `config.py` | `python tools\link_central.py … --force`, then restart the dashboard |
+| Central won't start after enrolment | the config block was pasted into `central/central_config.py` instead of `config.py` | delete the block from Central's config; it belongs on the agent |
 | Central won't start, "TLS is not configured" | working as designed | set the cert/key, or `CENTRAL_BEHIND_PROXY`; `CENTRAL_ALLOW_INSECURE_HTTP` for local dev only |
 | Central won't start, "No SSO signing keypair" | keygen not run | `python central_keygen.py` |
 | Agent stuck on **Pending** | it has never checked in | confirm `CENTRAL_ENABLED = True` and restart the dashboard; check its log for `[CENTRAL]` |
