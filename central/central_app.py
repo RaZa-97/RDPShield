@@ -40,8 +40,14 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
-sys.path.insert(0, _HERE)
+# ORDER MATTERS: central/ must come FIRST so Central's own modules always win.
+# _ROOT is on the path only for the two SHARED modules (central_report_schema,
+# central_sso_verify) that also ship to customer boxes. Inserting _ROOT last
+# would put it at index 0, where a stray central_config.py in the repo root
+# would silently shadow central/central_config.py — and you would edit one file
+# while Central loaded the other.
 sys.path.insert(0, _ROOT)
+sys.path.insert(0, _HERE)
 
 try:
     import central_config as cfg
@@ -51,6 +57,14 @@ except ImportError:
         "    cd central\n"
         "    copy central_config.example.py central_config.py   (then edit it)\n"
     )
+
+# Print the file that was actually loaded. Editing the wrong copy (or forgetting
+# to restart) is the single most confusing failure mode here, because Central
+# keeps happily serving the old settings.
+_CONFIG_FILE = getattr(cfg, "__file__", "<unknown>")
+if os.path.dirname(os.path.abspath(_CONFIG_FILE)) != _HERE:
+    print(f"[CENTRAL] *** WARNING: loaded config from {_CONFIG_FILE}, which is "
+          f"NOT in {_HERE}. That file is shadowing central/central_config.py. ***")
 
 import central_db
 import central_auth as cauth
@@ -1034,6 +1048,12 @@ def _preflight():
 
 if __name__ == "__main__":
     print("[CENTRAL] Initialising database…")
+    # Echo the settings that decide reachability and TLS. These are the ones
+    # people edit and then wonder why nothing changed.
+    print(f"[CENTRAL] Config: {_CONFIG_FILE}")
+    print(f"[CENTRAL] Bind: {getattr(cfg, 'CENTRAL_HOST', '?')}:"
+          f"{getattr(cfg, 'CENTRAL_PORT', '?')}   "
+          f"TLS cert: {getattr(cfg, 'CENTRAL_SSL_CERT', '') or '(none)'}")
     central_db.init_db()
     _preflight()
     if _needs_setup():

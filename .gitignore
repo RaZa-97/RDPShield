@@ -6,7 +6,10 @@ config.py
 # central_config.py holds the DB path and TLS paths; the PEM is the SSO signing
 # key, which must never leave the Central host — an instance only ever gets the
 # PUBLIC .jwk.json, which can verify a token but never mint one.
-central/central_config.py
+# Match central_config.py ANYWHERE, not just in central/. A copy accidentally
+# created in the repo root used to shadow the real one (fixed), and without this
+# pattern that stray copy would be tracked and committed.
+central_config.py
 central/.central_secret_key
 central/central_sso_private.pem
 central/*.pem
