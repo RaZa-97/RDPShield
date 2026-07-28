@@ -42,9 +42,10 @@ Thumbs.db
 .idea/
 .claude/
 
-# Deployment helpers (server-specific)
-run_agent.bat
-run_dashboard.bat
+# Deployment helpers (server-specific). Wildcarded rather than listed by name:
+# these contain absolute interpreter paths for one particular host, and a new
+# one (run_central.bat) would otherwise be committed by accident.
+run_*.bat
 panic_unblock.bat
 
 # Local-only working notes and dissertation evidence — NOT published.

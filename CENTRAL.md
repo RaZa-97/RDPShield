@@ -172,6 +172,43 @@ On first start, browse to `/setup` **from the Central host itself or its local
 network** and create the superadmin. Like the instance wizard, `/setup` exists
 only while there are zero accounts and refuses public clients.
 
+### Running Central 24/7 (Windows Task Scheduler)
+
+Same pattern as the instance's `RDPShield-Agent` / `RDPShield-Dashboard` tasks,
+so Central survives an RDP disconnect and a reboot.
+
+Create `run_central.bat` in the project root (gitignored — it holds an absolute
+interpreter path for one specific host):
+
+```bat
+cd /d C:\Projects\RDPShield\central
+set PYTHONUTF8=1
+C:\Users\Administrator\AppData\Local\Programs\Python\Python311-32\python.exe central_app.py >> ..\central.log 2>&1
+```
+
+`PYTHONUTF8=1` is required — without it, non-ASCII data crashes the process
+under the SYSTEM account. Register it:
+
+```cmd
+schtasks /create /tn "RDPShield-Central" /tr "C:\Projects\RDPShield\run_central.bat" /sc onstart /ru SYSTEM /f
+schtasks /run /tn "RDPShield-Central"
+```
+
+> **⚠ `taskkill /F /IM python.exe` now kills all three services.** The existing
+> restart recipe was written when there were two. Either restart all three
+> together, or stop only the one you mean:
+>
+> ```cmd
+> :: restart everything cleanly
+> schtasks /end /tn "RDPShield-Agent" & schtasks /end /tn "RDPShield-Dashboard" & schtasks /end /tn "RDPShield-Central"
+> taskkill /F /IM python.exe
+> schtasks /run /tn "RDPShield-Agent" & schtasks /run /tn "RDPShield-Dashboard" & schtasks /run /tn "RDPShield-Central"
+> ```
+
+Also note: if the task is running, starting `central_app.py` by hand in a
+console fails with a port-in-use error. Stop the task first when you want a
+foreground window to read startup output.
+
 ### TLS is not optional here
 The per-instance dashboard is allowed to run on plain HTTP behind an IP
 allow-list — an accepted trade-off for a single-operator academic deployment.
