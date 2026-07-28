@@ -89,25 +89,33 @@ def _scalar(sql, params=()):
         conn.close()
 
 
+# Both timestamp columns are stored as ISO strings with a 'T' separator:
+#   failed_logins.timestamp  UTC, straight from the Windows Event Log
+#                            ('2026-06-27T09:03:28.6098517Z')
+#   alerts.timestamp         LOCAL, from datetime.now().isoformat()
+#
+# The comparison is a plain STRING compare, so the cutoff must use the same
+# 'T' separator. SQLite's datetime('now', …) returns a SPACE separator, and
+# because 'T' (0x54) sorts after ' ' (0x20) any same-date row compares greater
+# than the cutoff regardless of its actual time — which silently widened this
+# window to ~48h. Hence the cutoffs below are built in Python, with 'T'.
+#
+# (The UTC-vs-local split between the two tables is a known project-wide issue
+# tracked in PROGRESS.md. It is honoured here rather than "fixed", because
+# changing a storage convention would be a change to the detection pipeline.)
+def _iso_cutoff(hours, utc):
+    base = datetime.utcnow() if utc else datetime.now()
+    return (base - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
 def _failed_logins_24h():
-    # failed_logins.timestamp is stored in UTC (see get_failed_login_trend,
-    # which converts with 'localtime' for display), so the window is UTC too.
-    return _scalar("""
-        SELECT COUNT(*) FROM failed_logins
-        WHERE timestamp >= datetime('now', '-1 day')
-    """)
+    return _scalar("SELECT COUNT(*) FROM failed_logins WHERE timestamp >= ?",
+                   (_iso_cutoff(24, utc=True),))
 
 
 def _alerts_24h():
-    # alerts.timestamp is stored in LOCAL time (see get_alert_type_breakdown),
-    # so this window has to be local to match. The two tables genuinely differ;
-    # this mismatch is a known project-wide issue tracked in PROGRESS.md, and is
-    # deliberately NOT "fixed" here — changing storage conventions is a change
-    # to the detection pipeline, which this feature must not touch.
-    return _scalar("""
-        SELECT COUNT(*) FROM alerts
-        WHERE timestamp >= datetime('now', 'localtime', '-1 day')
-    """)
+    return _scalar("SELECT COUNT(*) FROM alerts WHERE timestamp >= ?",
+                   (_iso_cutoff(24, utc=False),))
 
 
 def _top_alert_type():
@@ -116,9 +124,9 @@ def _top_alert_type():
     try:
         row = conn.execute("""
             SELECT alert_type, COUNT(*) AS cnt FROM alerts
-            WHERE timestamp >= datetime('now', 'localtime', '-1 day')
+            WHERE timestamp >= ?
             GROUP BY alert_type ORDER BY cnt DESC LIMIT 1
-        """).fetchone()
+        """, (_iso_cutoff(24, utc=False),)).fetchone()
     finally:
         conn.close()
     if not row:
@@ -175,9 +183,8 @@ def _detectors_ok():
     total = _scalar("SELECT COUNT(*) FROM failed_logins")
     if total == 0:
         return True
-    recent = _scalar("SELECT COUNT(*) FROM failed_logins "
-                     "WHERE timestamp >= datetime('now', ?)",
-                     (f"-{_STALE_AFTER_HOURS} hours",))
+    recent = _scalar("SELECT COUNT(*) FROM failed_logins WHERE timestamp >= ?",
+                     (_iso_cutoff(_STALE_AFTER_HOURS, utc=True),))
     return recent > 0
 
 
