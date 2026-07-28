@@ -64,3 +64,6 @@ evidence/
 # Dissertation drafts / Office temp files / DB backups — not part of the tool
 *.bak
 ~$*
+
+# Config backups written by tools/link_central.py before it edits config.py
+config.py.*.bak
